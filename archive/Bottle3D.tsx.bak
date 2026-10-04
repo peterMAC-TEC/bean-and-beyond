@@ -1,0 +1,81 @@
+"use client";
+
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import type { BottleScene } from "@/lib/bottle3d";
+
+type Props = {
+  liquid: string;
+  green?: boolean;
+  /** written by the hero: where the bottle should turn to, plus scroll spin */
+  motion: MutableRefObject<{ x: number; y: number; spin: number }>;
+  onReady?: () => void;
+  className?: string;
+};
+
+/**
+ * Real-time 3D bottle. three.js is only downloaded once the loading screen
+ * has finished, and the drawn SVG bottle shows until it is ready (and stays
+ * for reduced-motion visitors or browsers without WebGL).
+ */
+export function Bottle3D({ liquid, green = false, motion, onReady, className = "" }: Props) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const scene = useRef<BottleScene | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let cancelled = false;
+    let raf = 0;
+    let io: IntersectionObserver | null = null;
+
+    const start = async () => {
+      const test = document.createElement("canvas");
+      if (!(test.getContext("webgl2") || test.getContext("webgl"))) return;
+      const { createBottleScene } = await import("@/lib/bottle3d");
+      if (cancelled || !canvas.current) return;
+      const s = createBottleScene(canvas.current, { liquid, green, level: 0.9 });
+      scene.current = s;
+      // feed the hero's motion into the scene every frame
+      const feed = () => {
+        raf = requestAnimationFrame(feed);
+        s.setTarget(motion.current.x, motion.current.y);
+        s.setSpin(motion.current.spin);
+      };
+      feed();
+      io = new IntersectionObserver(([e]) => s.setRunning(e.isIntersecting));
+      io.observe(canvas.current);
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        setReady(true);
+        onReady?.();
+      });
+    };
+
+    if (document.getElementById("bb-loader")) window.addEventListener("bb:ready", start, { once: true });
+    else void start();
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("bb:ready", start);
+      cancelAnimationFrame(raf);
+      io?.disconnect();
+      scene.current?.dispose();
+      scene.current = null;
+    };
+    // the scene is created once; colour changes go through the effect below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    scene.current?.setLiquid(liquid);
+    scene.current?.setGlass(green);
+  }, [liquid, green]);
+
+  return (
+    <canvas
+      ref={canvas}
+      aria-hidden
+      className={`transition-opacity duration-700 ${ready ? "opacity-100" : "opacity-0"} ${className}`}
+    />
+  );
+}

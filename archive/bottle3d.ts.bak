@@ -1,0 +1,345 @@
+/**
+ * Real-time 3D Bean & Beyond bottle (three.js). Loaded on demand by
+ * components/Bottle3D.tsx so it never slows down the first paint.
+ *
+ * Glass is a physical transmission material lit by a studio environment,
+ * the coffee is clipped by a world-space plane so it stays level (and
+ * sloshes) when the bottle tilts, and the label is painted on a canvas.
+ */
+import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+
+export type BottleScene = {
+  /** -1..1 each: where the bottle should turn to */
+  setTarget: (x: number, y: number) => void;
+  /** extra spin in radians (e.g. from scrolling) */
+  setSpin: (r: number) => void;
+  setLiquid: (hex: string) => void;
+  setGlass: (green: boolean) => void;
+  setRunning: (on: boolean) => void;
+  dispose: () => void;
+};
+
+const S = 0.01; // SVG units to scene units
+// the same silhouette as the SVG bottle (components/Bottle.tsx), in scene space
+function silhouette() {
+  const p = (x: number, y: number) => [(x - 100) * S, (420 - y) * S] as const;
+  const s = new THREE.Shape();
+  s.moveTo(...p(72, 44));
+  s.lineTo(...p(72, 96));
+  s.bezierCurveTo(...p(72, 118), ...p(30, 124), ...p(30, 156));
+  s.lineTo(...p(30, 384));
+  s.quadraticCurveTo(...p(30, 402), ...p(48, 402));
+  s.lineTo(...p(152, 402));
+  s.quadraticCurveTo(...p(170, 402), ...p(170, 384));
+  s.lineTo(...p(170, 156));
+  s.bezierCurveTo(...p(170, 124), ...p(128, 118), ...p(128, 96));
+  s.lineTo(...p(128, 44));
+  s.lineTo(...p(72, 44));
+  return s;
+}
+
+function labelTexture() {
+  const c = document.createElement("canvas");
+  c.width = 540;
+  c.height = 620;
+  const g = c.getContext("2d")!;
+  const css = getComputedStyle(document.body);
+  const display = css.getPropertyValue("--font-display") || "serif";
+  const body = css.getPropertyValue("--font-body") || "sans-serif";
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#c8963e";
+
+  // black label, gold lettering, parchment panels: drawn from the printed label
+  const W = c.width;
+  const GOLD = "#dcc08a";
+  g.fillStyle = "#15110d";
+  g.fillRect(0, 0, W, c.height);
+  g.strokeStyle = GOLD;
+  g.lineWidth = 5;
+  g.strokeRect(18, 18, W - 36, c.height - 36);
+  g.lineWidth = 1.5;
+  g.strokeRect(32, 32, W - 64, c.height - 64);
+  g.textAlign = "center";
+  g.fillStyle = GOLD;
+  g.beginPath();
+  g.arc(W / 2, 78, 28, 0, Math.PI * 2);
+  g.stroke();
+  g.font = `20px ${display}`;
+  g.fillText("ESTD", W / 2, 76);
+  g.fillText("2026", W / 2, 98);
+  g.font = `76px ${display}`;
+  g.fillText("BEAN & BEYOND", W / 2, 196, W - 80);
+  g.fillRect(70, 216, W - 140, 2);
+  g.font = `600 17px ${body}`;
+  g.fillText("HAND-CRAFTED BATCH NO. 01", W / 2, 246);
+  // maroon band + parchment oval with beans
+  g.fillStyle = "#4a2420";
+  g.fillRect(18, 300, W - 36, 80);
+  g.fillStyle = "#15110d";
+  g.beginPath();
+  g.ellipse(W / 2, 340, 140, 96, 0, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = GOLD;
+  g.lineWidth = 3;
+  g.stroke();
+  const oval = g.createRadialGradient(W / 2, 330, 10, W / 2, 340, 140);
+  oval.addColorStop(0, "#f2e2bd");
+  oval.addColorStop(1, "#c9a874");
+  g.fillStyle = oval;
+  g.beginPath();
+  g.ellipse(W / 2, 340, 128, 86, 0, 0, Math.PI * 2);
+  g.fill();
+  for (const [x, y, r] of [[W / 2, 336, -0.3], [W / 2 - 46, 362, 0.4], [W / 2 + 46, 364, -0.5]] as const) {
+    g.save();
+    g.translate(x, y);
+    g.rotate(r);
+    g.fillStyle = "#a07a45";
+    g.strokeStyle = "#5a3d22";
+    g.lineWidth = 3;
+    g.beginPath();
+    g.ellipse(0, 0, 22, 32, 0, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+    g.beginPath();
+    g.moveTo(0, -30);
+    g.bezierCurveTo(-10, -10, 10, 10, 0, 30);
+    g.strokeStyle = "#3a2412";
+    g.stroke();
+    g.restore();
+  }
+  // warning box
+  g.fillStyle = "#e9d6ac";
+  g.fillRect(56, 462, W - 112, 118);
+  g.fillStyle = "#c42b1c";
+  g.font = `800 30px ${body}`;
+  g.fillText("WARNING:", W / 2, 500);
+  g.fillStyle = "#2a1d12";
+  g.font = `500 17px ${body}`;
+  g.fillText("Extreme alertness, sudden bursts of productivity.", W / 2, 530, W - 140);
+  g.fillText("Contains 0% alcohol. 100% pure focus.", W / 2, 558, W - 140);
+  void accent;
+
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
+export function createBottleScene(canvas: HTMLCanvasElement, opts: { liquid: string; green: boolean; level: number }): BottleScene {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
+  const mobile = window.matchMedia("(pointer: coarse)").matches;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.5 : 1.75));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.85;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.localClippingEnabled = true;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  const scene = new THREE.Scene();
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = env;
+  // a dim bar, not a bright photo studio: reflections stay, the wash goes
+  scene.environmentIntensity = 0.5;
+
+  const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 50);
+  camera.position.set(0, 2.25, 10.2);
+  camera.lookAt(0, 2.05, 0);
+
+  // ---- lights: an overhead bar spotlight and a warm rim from behind ----
+  const spot = new THREE.SpotLight(0xfff1d6, 34, 20, 0.42, 0.6, 1.4);
+  spot.position.set(0.6, 8, 3);
+  spot.target.position.set(0, 1.5, 0);
+  spot.castShadow = true;
+  spot.shadow.mapSize.set(1024, 1024);
+  spot.shadow.radius = 6;
+  scene.add(spot, spot.target);
+  const rim = new THREE.PointLight(0xffa04a, 18, 12);
+  rim.position.set(-2.5, 3, -3);
+  scene.add(rim);
+  scene.add(new THREE.AmbientLight(0xffe6c4, 0.15));
+
+  const bottle = new THREE.Group();
+  scene.add(bottle);
+
+  // ---- glass ----
+  const depth = 0.42;
+  const bevel = { bevelEnabled: true, bevelThickness: 0.14, bevelSize: 0.12, bevelSegments: 8, curveSegments: 32 };
+  const glassGeo = new THREE.ExtrudeGeometry(silhouette(), { depth, ...bevel });
+  glassGeo.translate(0, 0, -depth / 2);
+  // Glass in two layers so the page behind shows through:
+  // 1. a faint tint (darker, or green for green glass)
+  const tintMat = new THREE.MeshBasicMaterial({ color: 0x0a0806, transparent: true, opacity: 0.22, depthWrite: false });
+  const tint = new THREE.Mesh(glassGeo, tintMat);
+  tint.renderOrder = 2;
+  bottle.add(tint);
+  // 2. reflections only, added as light: black base colour + additive blending
+  //    means the glass shows highlights and fresnel edges and nothing else
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0x000000,
+    metalness: 0,
+    roughness: 0.04,
+    clearcoat: 1,
+    clearcoatRoughness: 0.02,
+    envMapIntensity: 5,
+    specularIntensity: 1,
+    ior: 1.52,
+    transparent: true,
+    depthWrite: false,
+    // add light to the colour but leave the canvas transparency alone, so on
+    // the page it reads as a highlight floating over whatever is behind
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneFactor,
+    blendSrcAlpha: THREE.ZeroFactor,
+    blendDstAlpha: THREE.OneFactor,
+  });
+  const glass = new THREE.Mesh(glassGeo, glassMat);
+  glass.renderOrder = 4;
+  bottle.add(glass);
+  // the solid shadow-caster stays invisible
+  const caster = new THREE.Mesh(glassGeo, new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
+  caster.castShadow = true;
+  bottle.add(caster);
+
+  // ---- coffee: the inside of the bottle, cut level by a world-space plane ----
+  const bottomY = (420 - 402) * S;
+  const topY = (420 - 120) * S;
+  const fill = new THREE.Plane(new THREE.Vector3(0, -1, 0), bottomY + opts.level * (topY - bottomY));
+  const liquidGeo = new THREE.ExtrudeGeometry(silhouette(), { depth: depth * 0.7, ...bevel, bevelThickness: 0.08, bevelSize: 0.06 });
+  liquidGeo.translate(0, 0, -(depth * 0.7) / 2);
+  liquidGeo.scale(0.9, 0.97, 0.9);
+  liquidGeo.translate(0, 0.07, 0);
+  const liquidMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(opts.liquid),
+    roughness: 0.06,
+    metalness: 0,
+    clearcoat: 1,
+    clearcoatRoughness: 0.02,
+    sheen: 0.35,
+    sheenColor: new THREE.Color(0x8a4a17),
+    // a little backlit amber, like light passing through dark coffee
+    emissive: new THREE.Color(0x5a2608),
+    emissiveIntensity: 0.35,
+    clippingPlanes: [fill],
+    clipShadows: true,
+    side: THREE.DoubleSide,
+  });
+  const liquid = new THREE.Mesh(liquidGeo, liquidMat);
+  liquid.renderOrder = 1;
+  bottle.add(liquid);
+
+  // ---- label ----
+  const label = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.08, 1.24),
+    new THREE.MeshStandardMaterial({ map: labelTexture(), roughness: 0.8, envMapIntensity: 1.1 }),
+  );
+  label.position.set(0, (420 - 258) * S, depth / 2 + bevel.bevelThickness + 0.004);
+  label.renderOrder = 3;
+  bottle.add(label);
+
+  // ---- brushed-metal screw cap ----
+  const metal = new THREE.MeshStandardMaterial({ color: 0xd8d8d8, metalness: 1, roughness: 0.25, envMapIntensity: 2.6 });
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.36, 64, 1), metal);
+  cap.position.y = (420 - 24) * S;
+  cap.castShadow = true;
+  bottle.add(cap);
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.08, 64, 1), metal);
+  ring.position.y = (420 - 44) * S;
+  bottle.add(ring);
+  for (let i = 0; i < 6; i++) {
+    const groove = new THREE.Mesh(new THREE.TorusGeometry(0.342, 0.006, 6, 64), new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 1, roughness: 0.4 }));
+    groove.rotation.x = Math.PI / 2;
+    groove.position.y = cap.position.y - 0.14 + i * 0.055;
+    bottle.add(groove);
+  }
+
+  // ---- counter: only the shadow is drawn; the wood is the page behind ----
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.ShadowMaterial({ opacity: 0.5 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = bottomY - 0.14;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // ---- motion ----
+  const target = { x: 0, y: 0 };
+  let spin = 0;
+  const rot = { x: 0, y: 0 };
+  const slosh = { a: 0, v: 0, b: 0, vb: 0 };
+  let lastY = 0;
+  let running = true;
+  let frame = 0;
+  const clock = new THREE.Clock();
+  const level = fill.constant;
+
+  const resize = () => {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  };
+  resize();
+  const ro = new ResizeObserver(resize);
+  ro.observe(canvas);
+
+  const tick = () => {
+    frame = requestAnimationFrame(tick);
+    if (!running) return;
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const t = clock.elapsedTime;
+    // ease toward the cursor, with a slow idle sway
+    const ty = target.x * 0.85 + spin + Math.sin(t * 0.4) * 0.08;
+    const tx = target.y * 0.18;
+    rot.y += (ty - rot.y) * Math.min(1, dt * 5);
+    rot.x += (tx - rot.x) * Math.min(1, dt * 5);
+    bottle.rotation.set(rot.x, rot.y, 0);
+
+    // sloshing: a damped spring kicked by how fast the bottle turns
+    const turn = (rot.y - lastY) / Math.max(dt, 0.001);
+    lastY = rot.y;
+    slosh.v += (-slosh.a * 40 - slosh.v * 3.2 - turn * 0.9) * dt;
+    slosh.a += slosh.v * dt;
+    slosh.vb += (-slosh.b * 40 - slosh.vb * 3.2) * dt + rot.x * 0.02;
+    slosh.b += slosh.vb * dt;
+    fill.normal.set(Math.max(-0.35, Math.min(0.35, slosh.a)), -1, slosh.b * 0.5).normalize();
+    fill.constant = level;
+    renderer.render(scene, camera);
+  };
+  tick();
+
+  const api: BottleScene = {
+    setTarget: (x, y) => {
+      target.x = x;
+      target.y = y;
+    },
+    setSpin: (r) => (spin = r),
+    setLiquid: (hex) => liquidMat.color.set(hex),
+    setGlass: (green) => {
+      tintMat.color.set(green ? 0x1f6b38 : 0x0a0806);
+      tintMat.opacity = green ? 0.36 : 0.22;
+    },
+    setRunning: (on) => {
+      running = on;
+      if (on) clock.getDelta();
+    },
+    dispose: () => {
+      cancelAnimationFrame(frame);
+      ro.disconnect();
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        m.geometry?.dispose();
+        const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+        (Array.isArray(mat) ? mat : mat ? [mat] : []).forEach((x) => x.dispose());
+      });
+      env.dispose();
+      pmrem.dispose();
+      renderer.dispose();
+    },
+  };
+  api.setGlass(opts.green);
+  return api;
+}

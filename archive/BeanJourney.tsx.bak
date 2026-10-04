@@ -1,0 +1,220 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import { gsap } from "@/lib/gsap";
+import { useReducedMotion } from "@/lib/useReducedMotion";
+import { play } from "@/lib/sound";
+import { site } from "@/content/site";
+import { Bottle } from "./Bottle";
+
+const GROUNDS = 42;
+const GOLD = "#c8963e";
+const WATER = "#2f4a4a";
+const COFFEE = "#2a160b";
+
+// fingers: x of the base and length, in the hand's own coordinates
+const FINGERS = [
+  { x: -57, len: 105, close: -46 },
+  { x: -19, len: 130, close: -18 },
+  { x: 19, len: 135, close: 18 },
+  { x: 57, len: 112, close: 46 },
+];
+
+/**
+ * The bean's journey: a pinned, scroll-scrubbed story drawn in the label's
+ * engraved style. Bean falls, a giant hand crushes it, the grounds swirl
+ * through a spring, and black coffee pours into a bottle. Fully reversible.
+ */
+export function BeanJourney() {
+  const root = useRef<HTMLElement>(null);
+  const reduced = useReducedMotion();
+
+  useEffect(() => {
+    const el = root.current!;
+    const q = gsap.utils.selector(el);
+    const caps = q(".j-cap");
+    const grounds = q(".j-ground");
+    const stream = q(".j-stream") as unknown as SVGPathElement[];
+    const streamLen = stream[0].getTotalLength();
+
+    // seeded randomness so the burst looks the same every time
+    let seed = 7;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+    gsap.set(q(".j-bean"), { x: 400, y: -60, transformOrigin: "50% 50%" });
+    gsap.set(q(".j-hand"), { x: 1250, y: -40, rotation: -35, transformOrigin: "50% 100%" });
+    gsap.set(q(".j-finger"), { transformOrigin: "50% 0%" });
+    gsap.set(q(".j-thumb"), { rotation: 38, transformOrigin: "50% 0%" });
+    gsap.set(grounds, { x: 400, y: 262, opacity: 0 });
+    gsap.set(q(".j-b"), { opacity: 0 });
+    gsap.set([q(".j-flames"), q(".j-smoke")], { opacity: 0 });
+    gsap.set(stream, { strokeDasharray: streamLen, strokeDashoffset: streamLen });
+    gsap.set(caps, { opacity: 0, y: 20 });
+    gsap.set(caps[0], { opacity: 1, y: 0 });
+
+    const tl = gsap.timeline({
+      defaults: { ease: "none" },
+      paused: reduced,
+      scrollTrigger: reduced ? undefined : { trigger: el, start: "top top", end: "+=600%", pin: true, scrub: 0.6 },
+    });
+    const forward = () => (tl.scrollTrigger?.direction ?? 1) > 0;
+    const caption = (from: number, to: number, at: number) =>
+      tl.to(caps[from], { opacity: 0, y: -20, duration: 0.4 }, at).to(caps[to], { opacity: 1, y: 0, duration: 0.4 }, at + 0.4);
+
+    // 1. a green bean drops into the roaster
+    tl.to(q(".j-bean"), { y: 165, rotation: 140, duration: 1.4, ease: "power1.in" }, 0);
+    tl.fromTo(q(".j-flames"), { opacity: 0, scaleY: 0.2 }, { opacity: 1, scaleY: 1, transformOrigin: "50% 100%", duration: 0.8 }, 0.7);
+    // 2. roasted: it turns from green to deep brown while smoke curls up
+    caption(0, 1, 1.4);
+    tl.to(q(".j-bean"), { y: 180, rotation: 300, duration: 1.8, ease: "sine.inOut" }, 1.4);
+    tl.to(q(".j-bean-body"), { attr: { fill: "#3b2012" }, duration: 1.6 }, 1.5);
+    tl.to(q(".j-bean-crease"), { attr: { stroke: GOLD }, duration: 1.6 }, 1.5);
+    tl.fromTo(q(".j-smoke"), { opacity: 0, y: 0 }, { opacity: 0.7, y: -60, duration: 1.2, stagger: 0.25 }, 1.7);
+    tl.to(q(".j-smoke"), { opacity: 0, y: -120, duration: 0.8 }, 3.1);
+    tl.to(q(".j-flames"), { opacity: 0, scaleY: 0.2, duration: 0.6 }, 3.2);
+    const R = 3.2; // everything after the roast shifts by this much
+    // 3. the bean falls on and a giant hand crushes it
+    tl.to(q(".j-bean"), { y: 250, rotation: 380, duration: 1.2, ease: "power1.in" }, R);
+    tl.to(q(".j-hand"), { x: 400, y: 150, rotation: 0, duration: 1.8, ease: "power2.out" }, R + 0.2);
+    caption(1, 2, R + 1);
+    FINGERS.forEach((f, i) => tl.to(q(".j-finger")[i], { rotation: f.close, duration: 0.5 }, R + 2.1));
+    tl.to(q(".j-thumb"), { rotation: -22, duration: 0.5 }, R + 2.1);
+    tl.to(q(".j-hand"), { y: 185, duration: 0.5 }, R + 2.1);
+    tl.to(q(".j-bean"), { scaleX: 1.3, scaleY: 0.55, duration: 0.25 }, R + 2.35);
+    tl.to(q(".j-bean"), { opacity: 0, duration: 0.05 }, R + 2.6);
+    tl.call(() => forward() && play("crunch"), [], R + 2.6);
+    grounds.forEach((g) => {
+      const a = rand() * Math.PI * 2;
+      const r = 40 + rand() * 110;
+      tl.to(g, { opacity: 1, x: 400 + Math.cos(a) * r, y: 262 + Math.sin(a) * r * 0.6, duration: 0.7, ease: "power2.out" }, R + 2.6);
+      // 4. the grounds drop into the spring
+      tl.to(g, { x: 110 + rand() * 150, y: 228 + rand() * 18, duration: 1.4, ease: "power1.in" }, R + 3.8 + rand() * 0.3);
+    });
+    tl.to(q(".j-hand"), { y: -520, duration: 1, ease: "power2.in" }, R + 3.4);
+    tl.to(q(".j-b"), { opacity: 1, duration: 0.8 }, R + 3.8);
+    caption(2, 3, R + 3.7);
+    tl.to(q(".j-swirl"), { rotation: 900, transformOrigin: "50% 50%", duration: 3 }, R + 4);
+    tl.to(grounds, { opacity: 0, duration: 0.6 }, R + 5.3);
+    tl.to(q(".j-pool"), { fill: COFFEE, duration: 1 }, R + 5.2);
+    // 5. black coffee pours into the bottle
+    caption(3, 4, R + 5.9);
+    tl.to(stream, { strokeDashoffset: 0, duration: 1 }, R + 6.2);
+    tl.call(() => forward() && play("pour"), [], R + 6.2);
+    tl.to(q(".bb-liquid"), { y: -282, duration: 1.8 }, R + 7);
+    tl.to({}, { duration: 0.6 }); // hold on the full bottle
+
+    // reduced motion: no pinning, just show the finished scene
+    if (reduced) tl.progress(1);
+
+    return () => {
+      tl.scrollTrigger?.kill();
+      tl.kill();
+    };
+  }, [reduced]);
+
+  return (
+    <section ref={root} id="journey" className={`relative overflow-hidden bg-espresso ${reduced ? "min-h-[100svh]" : "h-[100svh]"}`} aria-label="The bean's journey">
+      <p className="absolute left-1/2 top-20 z-10 -translate-x-1/2 font-display text-xs tracking-[0.5em] text-gold sm:top-24">
+        THE BEAN&apos;S JOURNEY
+      </p>
+
+      <svg viewBox="0 0 800 600" className="absolute inset-0 h-full w-full" preserveAspectRatio="xMidYMid meet" aria-hidden>
+        <defs>
+          <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="#24170f" />
+            <line x1="0" y1="0" x2="0" y2="6" stroke={GOLD} strokeOpacity="0.35" strokeWidth="1" />
+          </pattern>
+        </defs>
+
+        {/* scene B: spring, pool, stream and bottle */}
+        <g className="j-b">
+          <path d="M0 0 H280 L262 40 Q232 74 214 62 L200 92 Q140 116 70 104 L0 124 Z" fill="url(#hatch)" stroke={GOLD} strokeWidth="2" />
+          <rect x="166" y="70" width="38" height="164" fill={WATER} opacity="0.85" />
+          {[174, 185, 196].map((x, i) => (
+            <line key={x} className="bb-fall" x1={x} x2={x} y1="70" y2="234" stroke="#f1e4cc" strokeOpacity="0.5" strokeWidth="1.5" strokeDasharray="10 14" style={{ animationDelay: `${i * -0.3}s` }} />
+          ))}
+          <ellipse className="j-pool" cx="185" cy="240" rx="135" ry="30" fill={WATER} stroke={GOLD} strokeWidth="2" />
+          <g transform="translate(185 240) scale(2.4 0.62)">
+            <path
+              className="j-swirl"
+              d="M0 0 m-4 0 a4 4 0 1 1 8 0 a8 8 0 1 1 -16 0 a12 12 0 1 1 24 0 a16 16 0 1 1 -32 0 a20 20 0 1 1 40 0"
+              fill="none"
+              stroke="#f1e4cc"
+              strokeOpacity="0.55"
+              strokeWidth="1.4"
+            />
+          </g>
+          <path className="j-stream" d="M305 246 C 430 258, 565 206, 600 250 L600 470" fill="none" stroke={COFFEE} strokeWidth="14" strokeLinecap="round" />
+          <path className="j-stream" d="M305 246 C 430 258, 565 206, 600 250 L600 470" fill="none" stroke="#7a4b1e" strokeOpacity="0.6" strokeWidth="3" strokeLinecap="round" />
+          <line x1="440" x2="800" y1="566" y2="566" stroke={GOLD} strokeWidth="2" />
+          <Bottle level={0} liquid={COFFEE} x={520} y={230} width={160} height={336} />
+        </g>
+
+        {/* the roaster's flames and smoke */}
+        <defs>
+          <radialGradient id="flame" cx="50%" cy="85%" r="80%">
+            <stop offset="0" stopColor="#fff1c2" />
+            <stop offset="0.35" stopColor="#ffb347" />
+            <stop offset="0.7" stopColor="#e0561f" />
+            <stop offset="1" stopColor="#8a3a22" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        <g className="j-flames">
+          {[
+            [340, 0.8, 0],
+            [372, 1.1, 0.15],
+            [400, 1.35, 0.05],
+            [428, 1.05, 0.25],
+            [460, 0.85, 0.1],
+          ].map(([x, sc, d]) => (
+            <g key={x} transform={`translate(${x} 300) scale(${sc})`}>
+              <path className="bb-flicker" style={{ animationDelay: `${-d}s` }} d="M0 0 C-26 -24 -14 -62 0 -110 C14 -62 26 -24 0 0Z" fill="url(#flame)" stroke={GOLD} strokeOpacity="0.5" strokeWidth="1" />
+            </g>
+          ))}
+          <rect x="310" y="298" width="180" height="10" rx="3" fill="url(#hatch)" stroke={GOLD} strokeWidth="1.5" />
+        </g>
+        {[380, 404, 424].map((x) => (
+          <path key={x} className="j-smoke" d={`M${x} 150 c-12 -20 12 -34 0 -56 c-10 -18 10 -30 2 -48`} fill="none" stroke="#f1e4cc" strokeOpacity="0.45" strokeWidth="3" strokeLinecap="round" />
+        ))}
+
+        {/* scene A: the bean and the hand */}
+        <g className="j-a">
+          <g className="j-hand">
+            <rect x="-62" y="-720" width="124" height="570" fill="url(#hatch)" stroke={GOLD} strokeWidth="2" />
+            <rect x="-70" y="-200" width="140" height="34" fill="#8a3a22" stroke={GOLD} strokeWidth="2" />
+            <g className="j-thumb">
+              <rect x="-95" y="-60" width="34" height="96" rx="17" fill="url(#hatch)" stroke={GOLD} strokeWidth="2" />
+            </g>
+            {FINGERS.map((f) => (
+              <g key={f.x} className="j-finger">
+                <rect x={f.x - 17} y="-12" width="34" height={f.len} rx="17" fill="url(#hatch)" stroke={GOLD} strokeWidth="2" />
+                <path d={`M${f.x - 9} ${f.len * 0.45} q9 5 18 0 M${f.x - 9} ${f.len * 0.75} q9 5 18 0`} fill="none" stroke={GOLD} strokeWidth="1.2" />
+              </g>
+            ))}
+            <rect x="-82" y="-168" width="164" height="168" rx="30" fill="url(#hatch)" stroke={GOLD} strokeWidth="2" />
+            <path d="M-50 -30 q50 18 100 0 M-40 -90 q20 30 0 60" fill="none" stroke={GOLD} strokeWidth="1.2" />
+          </g>
+          <g className="j-bean">
+            <ellipse className="j-bean-body" rx="24" ry="34" fill="#6f8a3c" stroke={GOLD} strokeWidth="2" />
+            <path className="j-bean-crease" d="M0 -32 C-11 -12 11 12 0 32" fill="none" stroke="#3f5520" strokeWidth="2.4" />
+            <path d="M-14 -12 l5 2 M-15 0 l5 1 M13 -4 l-5 2 M13 8 l-5 0" stroke={GOLD} strokeWidth="1" />
+          </g>
+        </g>
+
+        {Array.from({ length: GROUNDS }, (_, i) => (
+          <circle key={i} className="j-ground" r={1.8 + (i % 4) * 0.8} fill={i % 3 ? "#5a3320" : GOLD} />
+        ))}
+      </svg>
+
+      <div className={reduced ? "relative z-10 mx-auto grid max-w-4xl gap-6 px-6 pb-12 pt-[60svh] sm:grid-cols-2" : "absolute inset-x-0 bottom-0 z-10 h-40 px-6 sm:bottom-6 sm:left-10 sm:right-auto sm:w-96 sm:px-0"}>
+        {site.journey.map((beat, i) => (
+          <div key={beat.title} className={reduced ? "" : "j-cap absolute inset-x-6 bottom-24 sm:inset-x-0 sm:bottom-8"}>
+            <p className="font-display text-xs tracking-[0.4em] text-gold">0{i + 1}</p>
+            <h3 className="mt-1 font-brush text-4xl text-milk sm:text-5xl">{beat.title}</h3>
+            <p className="mt-1 text-label/80">{beat.text}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}

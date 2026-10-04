@@ -1,0 +1,922 @@
+/**
+ * The Bean & Beyond studio: a real-time 3D product shoot of a redesigned
+ * bottle (emerald flask, condensation, gold-foil label, knurled cap) on a
+ * black bar, with real-feeling coffee beans and ice you can play with.
+ *
+ * Interaction (all on the canvas):
+ *   drag the bottle to spin it (with momentum) · click it to shake it
+ *   move through beans and ice to scatter them · click the bar to drop beans
+ *   a warm light follows the cursor across the glass
+ *
+ * One timeline drives the scroll story (progress 0..1):
+ *   0.00 the bottle · 0.12 label close-up · 0.25 zero proof · 0.36 shake
+ *   0.46 pour · 0.72 swirl · 0.88 hero shot
+ */
+import * as THREE from "three";
+import gsap from "gsap";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { Reflector } from "three/examples/jsm/objects/Reflector.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { labelMaps, dropletNormalMap, noiseTexture, knurlTexture, bokehTexture } from "./textures";
+import { beanGeometry, iceGeometry } from "./props";
+import { play } from "./sound";
+
+export type Studio = {
+  setProgress: (p: number) => void;
+  setRunning: (on: boolean) => void;
+  /** product renders for the line-up cards, made once at start-up */
+  renders: Record<string, string>;
+  dispose: () => void;
+};
+
+type Flavour = { id: string; accent: string; liquid: string };
+
+// ---------- bottle geometry (1 unit ≈ 4 cm) ----------
+const R = 0.86; // body half-width
+const FLAT = 0.56; // flask: flatter front-to-back
+const LEVEL = 2.55; // coffee fills to the shoulder
+const INNER = 0.93;
+const CAP_Y = 3.97;
+const MOUTH = 4.06;
+
+const OUTSIDE: [number, number][] = [
+  [0, 0], [0.84, 0], [0.97, 0.04], [1, 0.16], [1, 2.62], [0.985, 2.82], [0.93, 3.02], [0.8, 3.22],
+  [0.6, 3.38], [0.44, 3.48], [0.4, 3.56], [0.4, 3.92], [0.45, 3.94], [0.45, 4.04], [0.4, 4.06],
+];
+const INSIDE: [number, number][] = [
+  [0, 0.09], [0.86, 0.09], [INNER, 0.22], [INNER, 2.62], [0.91, 2.82], [0.86, 3.02], [0.73, 3.22], [0.54, 3.38], [0.37, 3.5], [0.33, 3.9], [0, 3.9],
+];
+const flatAt = (y: number) => FLAT + (1 - FLAT) * THREE.MathUtils.smoothstep(y, 2.7, 3.45);
+
+function lathe(points: [number, number][], segments = 128) {
+  const curve = new THREE.SplineCurve(points.map(([r, y]) => new THREE.Vector2(r * R, y)));
+  const geo = new THREE.LatheGeometry(curve.getPoints(140), segments);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) pos.setZ(i, pos.getZ(i) * flatAt(pos.getY(i)));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function radialTexture(inner: string, outer: string, size = 512) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const g = c.getContext("2d")!;
+  const grd = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grd.addColorStop(0, inner);
+  grd.addColorStop(1, outer);
+  g.fillStyle = grd;
+  g.fillRect(0, 0, size, size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** angle (each side of front) so the label's printed width matches its aspect */
+function labelSpan(width: number) {
+  let len = 0;
+  let a = 0;
+  const step = 0.001;
+  while (len < width / 2 && a < 1.5) {
+    len += Math.hypot(R * 1.006 * Math.cos(a), R * 1.006 * FLAT * Math.sin(a)) * step;
+    a += step;
+  }
+  return a;
+}
+
+export async function createStudio(canvas: HTMLCanvasElement, flavours: Flavour[]): Promise<Studio> {
+  const mobile = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: mobile, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.3 : 1.6));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.localClippingEnabled = true;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  const scene = new THREE.Scene();
+  const INK = new THREE.Color(0x0b0907);
+  scene.background = INK;
+  scene.fog = new THREE.Fog(INK, 10, 22);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = env;
+  scene.environmentIntensity = 0.6;
+
+  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 80);
+  const look = new THREE.Vector3();
+
+  // ================================================================ set ====
+  const backdrop = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 16),
+    new THREE.MeshBasicMaterial({ map: radialTexture("#3d2b19", "#0b0907"), fog: false, toneMapped: false }),
+  );
+  backdrop.position.set(0, 3.5, -9);
+  scene.add(backdrop);
+
+  // out-of-focus bar lights far behind
+  const bokehTex = bokehTexture();
+  const bokeh = new THREE.Group();
+  const bokehColors = [0xffb35c, 0xffd28a, 0xff9a3c, 0xfff0c8, 0x7fd18f, 0xffc070];
+  for (let i = 0; i < (mobile ? 22 : 40); i++) {
+    const m = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: bokehTex, color: bokehColors[i % bokehColors.length], transparent: true, opacity: 0.12 + Math.random() * 0.3, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }),
+    );
+    const s = 0.4 + Math.random() * 1.3;
+    m.scale.set(s, s, 1);
+    m.position.set((Math.random() - 0.5) * 22, 1 + Math.random() * 7, -7 - Math.random() * 6);
+    m.userData.phase = Math.random() * Math.PI * 2;
+    bokeh.add(m);
+  }
+  scene.add(bokeh);
+
+  // glossy black bar: a mirror under a dark glaze that fades to nothing
+  let reflector: Reflector | null = null;
+  if (!mobile) {
+    reflector = new Reflector(new THREE.CircleGeometry(10, 64), { clipBias: 0.003, textureWidth: 1024, textureHeight: 1024, color: new THREE.Color(0x6a6a6a) });
+    reflector.rotation.x = -Math.PI / 2;
+    scene.add(reflector);
+  }
+  const glaze = new THREE.Mesh(
+    new THREE.CircleGeometry(12, 64),
+    new THREE.MeshBasicMaterial({ color: INK, transparent: true, alphaMap: radialTexture(mobile ? "#ffffff" : "#a8a8a8", "#ffffff"), depthWrite: false }),
+  );
+  glaze.rotation.x = -Math.PI / 2;
+  glaze.position.y = 0.002;
+  scene.add(glaze);
+  const shadowCatcher = new THREE.Mesh(new THREE.PlaneGeometry(16, 16), new THREE.ShadowMaterial({ opacity: 0.65 }));
+  shadowCatcher.rotation.x = -Math.PI / 2;
+  shadowCatcher.position.y = 0.004;
+  shadowCatcher.receiveShadow = true;
+  scene.add(shadowCatcher);
+  const pool = new THREE.Mesh(
+    new THREE.CircleGeometry(3.4, 64),
+    new THREE.MeshBasicMaterial({ map: radialTexture("rgba(255,214,160,0.3)", "rgba(255,214,160,0)"), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+  );
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.y = 0.006;
+  scene.add(pool);
+
+  // spotlight beam
+  const beamMat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    uniforms: { uStrength: { value: 0.2 } },
+    vertexShader: `varying float vY; varying vec3 vN; varying vec3 vV;
+      void main(){ vY = uv.y; vec4 mv = modelViewMatrix * vec4(position,1.0);
+      vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform float uStrength; varying float vY; varying vec3 vN; varying vec3 vV;
+      void main(){ float face = pow(abs(dot(vN, vV)), 1.6); float fade = smoothstep(0.0, 0.85, vY);
+      gl_FragColor = vec4(vec3(1.0, 0.9, 0.74) * face * fade * uStrength, 1.0); }`,
+  });
+  const beam = new THREE.Mesh(new THREE.ConeGeometry(3, 11, 64, 1, true), beamMat);
+  beam.position.set(0, 5.5, 0);
+  scene.add(beam);
+
+  const DUST = mobile ? 120 : 280;
+  const dustPos = new Float32Array(DUST * 3);
+  for (let i = 0; i < DUST; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.sqrt(Math.random()) * 2.4;
+    dustPos.set([Math.cos(a) * r, Math.random() * 9, Math.sin(a) * r * 0.8], i * 3);
+  }
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute("position", new THREE.BufferAttribute(dustPos, 3));
+  scene.add(new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xffe6bd, size: 0.022, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
+
+  // ============================================================== lights ===
+  const key = new THREE.SpotLight(0xffe4bd, 140, 26, 0.38, 0.75, 1.5);
+  key.position.set(0.4, 10.5, 1.8);
+  key.target.position.set(0, 1.6, 0);
+  key.castShadow = true;
+  key.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048);
+  key.shadow.radius = 6;
+  key.shadow.bias = -0.0003;
+  scene.add(key, key.target);
+  const rim = new THREE.SpotLight(0xffc88a, 80, 20, 0.5, 0.8, 1.4);
+  rim.position.set(-3.8, 5, -4.2);
+  rim.target.position.set(0, 2.2, 0);
+  scene.add(rim, rim.target);
+  const rim2 = new THREE.SpotLight(0xffe9c9, 55, 20, 0.5, 0.8, 1.4);
+  rim2.position.set(4, 4, -3.4);
+  rim2.target.position.set(0, 2.2, 0);
+  scene.add(rim2, rim2.target);
+  // follows the cursor across the glass
+  const cursorLight = new THREE.PointLight(0xffd9a8, mobile ? 0 : 7, 5, 1.6);
+  cursorLight.position.set(1.5, 2.5, 2);
+  scene.add(cursorLight);
+
+  // ============================================================== bottle ===
+  const bottle = new THREE.Group();
+  scene.add(bottle);
+
+  const droplets = dropletNormalMap();
+  droplets.repeat.set(3, 4);
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0xd6f3dc,
+    metalness: 0,
+    roughness: 0.05,
+    transmission: 1,
+    thickness: 0.34,
+    ior: 1.5,
+    attenuationColor: new THREE.Color(0x12863a),
+    attenuationDistance: 0.75,
+    clearcoat: 1,
+    clearcoatRoughness: 0.03,
+    specularIntensity: 1,
+    envMapIntensity: 1.5,
+    normalMap: droplets,
+    normalScale: new THREE.Vector2(0.28, 0.28),
+    clearcoatNormalMap: droplets,
+    clearcoatNormalScale: new THREE.Vector2(0.7, 0.7),
+  });
+  const glass = new THREE.Mesh(lathe(OUTSIDE), glassMat);
+  glass.castShadow = true;
+  bottle.add(glass);
+
+  // liquids: the inside shape cut by world-space planes
+  const coffeeTop = new THREE.Plane(new THREE.Vector3(0, -1, 0), LEVEL);
+  const milkTopForCoffee = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1);
+  const milkTop = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0.09);
+  const insideGeo = lathe(INSIDE, 96);
+  const COFFEE = new THREE.Color(0x160a04);
+  const LATTE = new THREE.Color(0x6a4527);
+  const coffeeMat = new THREE.MeshPhysicalMaterial({
+    color: COFFEE.clone(),
+    roughness: 0.15,
+    clearcoat: 1,
+    clearcoatRoughness: 0.06,
+    sheen: 0.5,
+    sheenColor: new THREE.Color(0x8a4512),
+    clippingPlanes: [coffeeTop, milkTopForCoffee],
+  });
+  bottle.add(new THREE.Mesh(insideGeo, coffeeMat));
+  const milkMat = new THREE.MeshPhysicalMaterial({ color: 0xf2e5c2, roughness: 0.35, sheen: 1, sheenColor: new THREE.Color(0xffffff), clearcoat: 0.5 });
+  const milkVolMat = milkMat.clone();
+  milkVolMat.clippingPlanes = [milkTop];
+  const milkVol = new THREE.Mesh(insideGeo, milkVolMat);
+  bottle.add(milkVol);
+
+  const rIn = INNER * R;
+  const surfaceGeo = new THREE.CircleGeometry(1, 72).rotateX(-Math.PI / 2);
+  const surfaceMat = coffeeMat.clone();
+  surfaceMat.clippingPlanes = [];
+  const surface = new THREE.Mesh(surfaceGeo, surfaceMat);
+  scene.add(surface);
+  const milkSurface = new THREE.Mesh(surfaceGeo, milkMat);
+  milkSurface.scale.set(rIn * 0.97, 1, rIn * 0.97 * FLAT);
+  bottle.add(milkSurface);
+
+  // foam ring
+  const BUBBLES = mobile ? 90 : 170;
+  const bubbleMat = new THREE.MeshPhysicalMaterial({ color: 0x6b4a2a, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.9 });
+  const bubbles = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 8), bubbleMat, BUBBLES);
+  const foam = new THREE.Group();
+  foam.add(bubbles);
+  scene.add(foam);
+  {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    for (let i = 0; i < BUBBLES; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const k = i < BUBBLES * 0.7 ? 0.82 + Math.random() * 0.15 : Math.random() * 0.8;
+      const s = 0.016 + Math.random() * (k > 0.8 ? 0.042 : 0.022);
+      m.compose(new THREE.Vector3(Math.cos(a) * rIn * k, s * 0.4, Math.sin(a) * rIn * k * FLAT), q, new THREE.Vector3(s, s * 0.8, s));
+      bubbles.setMatrixAt(i, m);
+    }
+  }
+
+  // the redesigned label: colour + real gold foil
+  const lab = await labelMaps();
+  const LABEL_H = 2.1;
+  const span = labelSpan(LABEL_H * lab.aspect);
+  const labelGeo = new THREE.CylinderGeometry(R * 1.006, R * 1.006, LABEL_H, 96, 1, true, -span, span * 2);
+  labelGeo.scale(1, 1, FLAT);
+  labelGeo.translate(0, 0.42 + LABEL_H / 2, 0);
+  const labelMat = new THREE.MeshPhysicalMaterial({
+    map: lab.map,
+    metalnessMap: lab.metalnessMap,
+    roughnessMap: lab.roughnessMap,
+    metalness: 1,
+    roughness: 1,
+    clearcoat: 0.25,
+    clearcoatRoughness: 0.35,
+    envMapIntensity: 1.6,
+  });
+  [lab.map, lab.metalnessMap, lab.roughnessMap].forEach((t) => (t.anisotropy = renderer.capabilities.getMaxAnisotropy()));
+  const label = new THREE.Mesh(labelGeo, labelMat);
+  bottle.add(label);
+
+  // knurled aluminium cap
+  const knurl = knurlTexture();
+  knurl.repeat.set(1, 1);
+  const alu = new THREE.MeshPhysicalMaterial({ color: 0xd9dce0, metalness: 1, roughness: 0.28, envMapIntensity: 1.8, bumpMap: knurl, bumpScale: 1.2, clearcoat: 0.3 });
+  const aluPlain = new THREE.MeshPhysicalMaterial({ color: 0xd9dce0, metalness: 1, roughness: 0.22, envMapIntensity: 1.8 });
+  const cap = new THREE.Group();
+  cap.position.y = CAP_Y;
+  bottle.add(cap);
+  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.34, 128, 1, true), alu);
+  skirt.position.y = 0.17;
+  skirt.castShadow = true;
+  cap.add(skirt);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.425, 0.425, 0.14, 128, 1, true), aluPlain);
+  band.position.y = 0.41;
+  cap.add(band);
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.425, 0.04, 128), aluPlain);
+  top.position.y = 0.5;
+  cap.add(top);
+  for (let i = 0; i < 3; i++) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.426, 0.006, 6, 128), aluPlain);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.36 + i * 0.04;
+    cap.add(ring);
+  }
+  const roll = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.02, 10, 128), aluPlain);
+  roll.rotation.x = Math.PI / 2;
+  cap.add(roll);
+
+  // ================================================== milk shot + stream ===
+  const shotPivot = new THREE.Group();
+  scene.add(shotPivot);
+  const shotGlassMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transmission: 1, roughness: 0.08, thickness: 0.1, ior: 1.45, clearcoat: 1 });
+  const SHOT: [number, number][] = [[0, 0], [0.19, 0], [0.22, 0.04], [0.22, 0.5], [0.18, 0.58], [0.13, 0.62], [0.13, 0.72]];
+  const shot = new THREE.Mesh(new THREE.LatheGeometry(SHOT.map(([r, y]) => new THREE.Vector2(r, y)), 48), shotGlassMat);
+  shot.position.y = -0.72;
+  shotPivot.add(shot);
+  const shotMilk = new THREE.Mesh(new THREE.LatheGeometry([[0, 0.03], [0.19, 0.03], [0.19, 0.48], [0, 0.48]].map(([r, y]) => new THREE.Vector2(r, y)), 32), milkMat);
+  shotMilk.position.y = -0.72;
+  shotPivot.add(shotMilk);
+  shotPivot.visible = false;
+  const LIP = new THREE.Vector3(0.42, MOUTH + 0.7, 0);
+  const streamCurve = new THREE.CatmullRomCurve3([
+    LIP.clone(),
+    new THREE.Vector3(0.26, MOUTH + 0.52, 0),
+    new THREE.Vector3(0.07, MOUTH + 0.15, 0),
+    new THREE.Vector3(0.01, MOUTH - 0.4, 0),
+    new THREE.Vector3(0, 0.3, 0),
+  ]);
+  const streamGeo = new THREE.TubeGeometry(streamCurve, 100, 0.032, 12, false);
+  const streamIndex = streamGeo.index!.count;
+  const stream = new THREE.Mesh(streamGeo, milkMat);
+  stream.visible = false;
+  scene.add(stream);
+
+  // ============================================================== props ====
+  // coffee beans
+  const BEANS = mobile ? 46 : 90;
+  const beanNoise = noiseTexture(256, 0.8);
+  const beanMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    roughness: 0.32,
+    roughnessMap: beanNoise,
+    bumpMap: beanNoise,
+    bumpScale: 0.6,
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.35,
+    sheen: 0.4,
+    sheenColor: new THREE.Color(0x9a5a2a),
+  });
+  const beans = new THREE.InstancedMesh(beanGeometry(), beanMat, BEANS);
+  beans.castShadow = true;
+  beans.receiveShadow = true;
+  scene.add(beans);
+  const BEAN_SCALE = 0.3;
+  type Body = { x: number; y: number; z: number; vx: number; vy: number; vz: number; yaw: number; rx: number; rz: number; wx: number; wz: number; s: number };
+  const bean: Body[] = [];
+  const beanColor = new THREE.Color();
+  for (let i = 0; i < BEANS; i++) {
+    // a heap to the left of the bottle, the rest scattered
+    const heap = i < BEANS * 0.6;
+    const a = Math.random() * Math.PI * 2;
+    const r = heap ? Math.sqrt(Math.random()) * 0.7 : 1.2 + Math.random() * 2.2;
+    const x = heap ? -1.75 + Math.cos(a) * r : Math.cos(a) * r * 1.4;
+    const z = heap ? 0.7 + Math.sin(a) * r * 0.7 : 0.4 + Math.sin(a) * r * 0.8;
+    const flip = Math.random() < 0.5 ? 0 : Math.PI;
+    bean.push({ x, y: heap ? 0.1 + Math.random() * 0.35 * (1 - r / 0.7) : 0.09, z, vx: 0, vy: 0, vz: 0, yaw: Math.random() * Math.PI * 2, rx: flip + (heap ? (Math.random() - 0.5) * 0.5 : 0), rz: heap ? (Math.random() - 0.5) * 0.5 : 0, wx: 0, wz: 0, s: BEAN_SCALE * (0.85 + Math.random() * 0.3) });
+    beans.setColorAt(i, beanColor.setHSL(0.055 + Math.random() * 0.02, 0.6 + Math.random() * 0.15, 0.035 + Math.random() * 0.035));
+  }
+  beans.instanceColor!.needsUpdate = true;
+
+  // ice cubes
+  // ice: clear shell with frosted edges, plus a cloudy core like real freezer ice
+  const iceMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    transmission: 1,
+    roughness: 0.06,
+    roughnessMap: noiseTexture(128, 0.9),
+    thickness: 0.5,
+    ior: 1.31,
+    attenuationColor: new THREE.Color(0xe4f1fa),
+    attenuationDistance: 4,
+    clearcoat: 1,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 3.2,
+    specularIntensity: 1,
+    normalMap: droplets,
+    normalScale: new THREE.Vector2(0.45, 0.45),
+  });
+  const iceCoreMat = new THREE.MeshStandardMaterial({ color: 0xeef6fc, roughness: 0.9, transparent: true, opacity: 0.16, depthWrite: false });
+  const iceGeo = iceGeometry();
+  const ICE = [
+    { x: 1.55, z: 0.55, s: 0.56, yaw: 0.4 },
+    { x: 2.15, z: -0.05, s: 0.5, yaw: 1.1 },
+    { x: 1.8, z: 1.25, s: 0.46, yaw: 2.2 },
+  ].map((c) => {
+    const m = new THREE.Mesh(iceGeo, iceMat);
+    m.scale.setScalar(c.s);
+    m.castShadow = true;
+    const core = new THREE.Mesh(iceGeo, iceCoreMat);
+    core.scale.setScalar(0.62);
+    m.add(core);
+    scene.add(m);
+    return { mesh: m, x: c.x, y: c.s * 0.46, z: c.z, vx: 0, vz: 0, yaw: c.yaw, s: c.s };
+  });
+
+  // ================================================================ post ===
+  let composer: EffectComposer | null = null;
+  if (!mobile) {
+    composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType }));
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.35, 0.55, 0.8));
+    composer.addPass(new OutputPass());
+  }
+  const render = () => (composer ? composer.render() : renderer.render(scene, camera));
+
+  // ============================================================ timeline ===
+  const S = {
+    camX: 0, camY: 2.3, camZ: 11.2, lookX: 0, lookY: 2.05,
+    rotY: -0.55, shake: 0, swirl: 0,
+    shotX: 3.6, shotY: 6.2, shotTilt: 0, shotIn: 0, shotMilk: 1,
+    stream: 0, streamEnd: 0, milk: 0.09, latte: 0, beam: 0.2,
+  };
+  const tl = gsap.timeline({ paused: true, defaults: { ease: "power2.inOut" } });
+  tl.to(S, { rotY: 0.45, camZ: 10.6, duration: 0.12, ease: "none" }, 0);
+  tl.to(S, { rotY: 0, camX: 0, camY: 1.5, camZ: 4.6, lookY: 1.47, duration: 0.1 }, 0.12);
+  tl.to(S, { rotY: 0.75, camX: 1.8, camY: 2.5, camZ: 11.4, lookY: 2.1, duration: 0.1 }, 0.25);
+  tl.to(S, { rotY: 0.15, camX: 0, camY: 2.4, camZ: 9.8, lookY: 2.1, duration: 0.06 }, 0.36);
+  tl.to(S, { shake: 1, duration: 0.015, ease: "none" }, 0.385).to(S, { shake: 0, duration: 0.015, ease: "none" }, 0.44);
+  tl.to(S, { camX: 1, camY: 3.3, camZ: 9.6, lookX: 0.25, lookY: 2.9, rotY: 0.35, duration: 0.06 }, 0.46);
+  tl.to(S, { shotIn: 1, shotX: LIP.x, shotY: LIP.y, duration: 0.05, ease: "power3.out" }, 0.47);
+  tl.to(S, { shotTilt: 2.25, duration: 0.04 }, 0.52);
+  tl.to(S, { stream: 1, duration: 0.025, ease: "none" }, 0.555);
+  tl.to(S, { milk: 0.38, shotMilk: 0.08, duration: 0.13, ease: "none" }, 0.57);
+  tl.to(S, { streamEnd: 1, duration: 0.02, ease: "none" }, 0.7);
+  tl.to(S, { shotTilt: 0, duration: 0.02 }, 0.7);
+  tl.to(S, { shotIn: 0, shotX: 3.6, shotY: 6.2, duration: 0.03, ease: "power2.in" }, 0.715);
+  tl.to(S, { camX: -1.3, camY: 2.6, camZ: 9.6, lookX: 0, lookY: 2.2, duration: 0.06 }, 0.72);
+  tl.to(S, { swirl: 1, duration: 0.02, ease: "none" }, 0.73).to(S, { swirl: 0, duration: 0.02, ease: "none" }, 0.85);
+  tl.to(S, { rotY: 0.35 + Math.PI * 2, duration: 0.14, ease: "power1.inOut" }, 0.73);
+  tl.to(S, { milk: 0.09, latte: 1, duration: 0.12, ease: "none" }, 0.74);
+  tl.to(S, { camX: 0, camY: 2.3, camZ: 10.4, lookY: 2.05, rotY: Math.PI * 2 + 0.2, beam: 0.28, duration: 0.1 }, 0.88);
+  tl.to(S, { duration: 0.0001 }, 1);
+
+  // ========================================================= interaction ===
+  const ray = new THREE.Raycaster();
+  const ndc = new THREE.Vector2(9, 9);
+  const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const frontPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -1.4);
+  const hit = new THREE.Vector3();
+  const pointer = { x: 0, y: 0, tx: 0, ty: 0, onFloor: false, fx: 0, fz: 0, fvx: 0, fvz: 0 };
+  const spin = { v: 0, extra: 0, dragging: false, downX: 0, lastX: 0, moved: 0, shakeKick: 0 };
+  let lastClink = 0;
+
+  const toNdc = (e: PointerEvent) => {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    pointer.tx = ndc.x;
+    pointer.ty = ndc.y;
+  };
+  const overBottle = () => {
+    ray.setFromCamera(ndc, camera);
+    return ray.intersectObjects([glass, label, skirt], false).length > 0;
+  };
+  const onMove = (e: PointerEvent) => {
+    toNdc(e);
+    ray.setFromCamera(ndc, camera);
+    if (ray.ray.intersectPlane(frontPlane, hit)) cursorLight.position.set(hit.x, Math.max(0.6, hit.y), hit.z);
+    if (ray.ray.intersectPlane(floorPlane, hit) && Math.abs(hit.x) < 6 && hit.z > -3 && hit.z < 4) {
+      if (pointer.onFloor) {
+        pointer.fvx = hit.x - pointer.fx;
+        pointer.fvz = hit.z - pointer.fz;
+      }
+      pointer.onFloor = true;
+      pointer.fx = hit.x;
+      pointer.fz = hit.z;
+    } else pointer.onFloor = false;
+    if (spin.dragging) {
+      const dx = e.clientX - spin.lastX;
+      spin.lastX = e.clientX;
+      spin.moved += Math.abs(dx);
+      spin.v = (dx / canvas.clientWidth) * 40;
+      spin.extra += (dx / canvas.clientWidth) * Math.PI * 2;
+    }
+    const grab = overBottle();
+    document.documentElement.dataset.cursor = spin.dragging ? "grabbing" : grab ? "grab" : "";
+  };
+  const onDown = (e: PointerEvent) => {
+    toNdc(e);
+    if (overBottle()) {
+      spin.dragging = true;
+      spin.downX = spin.lastX = e.clientX;
+      spin.moved = 0;
+      canvas.setPointerCapture(e.pointerId);
+    } else {
+      ray.setFromCamera(ndc, camera);
+      if (ray.ray.intersectPlane(floorPlane, hit)) dropBeans(hit.x, hit.z);
+    }
+  };
+  const onUp = (e: PointerEvent) => {
+    if (spin.dragging && spin.moved < 5) {
+      spin.shakeKick = 1;
+      play("pour");
+    }
+    spin.dragging = false;
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    document.documentElement.dataset.cursor = "";
+  };
+  const onLeave = () => {
+    pointer.onFloor = false;
+    pointer.tx = pointer.ty = 0;
+    document.documentElement.dataset.cursor = "";
+  };
+  canvas.addEventListener("pointermove", onMove);
+  canvas.addEventListener("pointerdown", onDown);
+  canvas.addEventListener("pointerup", onUp);
+  canvas.addEventListener("pointercancel", onUp);
+  canvas.addEventListener("pointerleave", onLeave);
+
+  let dropCursor = 0;
+  const dropBeans = (x: number, z: number) => {
+    play("crunch");
+    for (let k = 0; k < 9; k++) {
+      const b = bean[(dropCursor++ * 7) % BEANS];
+      b.x = x + (Math.random() - 0.5) * 0.5;
+      b.z = z + (Math.random() - 0.5) * 0.5;
+      b.y = 2.2 + Math.random() * 1.6;
+      b.vx = (Math.random() - 0.5) * 0.6;
+      b.vz = (Math.random() - 0.5) * 0.6;
+      b.vy = 0;
+      b.wx = (Math.random() - 0.5) * 18;
+      b.wz = (Math.random() - 0.5) * 18;
+    }
+  };
+
+  // ========================================================== frame loop ===
+  const slosh = { a: 0, v: 0, b: 0, vb: 0 };
+  let lastRotZ = 0;
+  let running = true;
+  let raf = 0;
+  const clock = new THREE.Clock();
+  const n = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  const tmpM = new THREE.Matrix4();
+  const tmpQ = new THREE.Quaternion();
+  const tmpE = new THREE.Euler();
+  const tmpS = new THREE.Vector3();
+  const tmpP = new THREE.Vector3();
+  const coffeeColor = new THREE.Color();
+
+  const resize = () => {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false);
+    composer?.setSize(w, h);
+    camera.aspect = w / h;
+    const wide = w / h > 1.15;
+    camera.fov = wide ? 30 : 46;
+    if (wide) camera.setViewOffset(w, h, -w * 0.16, 0, w, h);
+    else camera.setViewOffset(w, h, 0, h * 0.12, w, h);
+    camera.updateProjectionMatrix();
+  };
+
+  const insideBottle = (x: number, z: number, pad: number) => {
+    const ex = x / (R + pad);
+    const ez = z / (R * FLAT + pad);
+    return ex * ex + ez * ez < 1;
+  };
+  const pushOutOfBottle = (b: { x: number; z: number; vx: number; vz: number }, pad: number) => {
+    if (!insideBottle(b.x, b.z, pad)) return;
+    const a = Math.atan2(b.z / (R * FLAT + pad), b.x / (R + pad));
+    b.x = Math.cos(a) * (R + pad);
+    b.z = Math.sin(a) * (R * FLAT + pad);
+    b.vx *= -0.3;
+    b.vz *= -0.3;
+  };
+
+  const physics = (dt: number) => {
+    const g = 9.8 * 0.55;
+    const pushR = 0.55;
+    for (const b of bean) {
+      if (pointer.onFloor) {
+        const dx = b.x - pointer.fx;
+        const dz = b.z - pointer.fz;
+        const d = Math.hypot(dx, dz) || 1;
+        if (d < pushR && b.y < 0.6) {
+          const f = (1 - d / pushR) * 9;
+          b.vx += (dx / d) * f * dt + pointer.fvx * 2;
+          b.vz += (dz / d) * f * dt + pointer.fvz * 2;
+          if (Math.random() < 0.08) b.vy += 0.6 * (1 - d / pushR);
+          b.wx += (Math.random() - 0.5) * 6 * (1 - d / pushR);
+        }
+      }
+      b.vy -= g * dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.z += b.vz * dt;
+      const faceUp = Math.cos(b.rx) > 0;
+      const rest = (faceUp ? 0.093 : 0.052) * (b.s / BEAN_SCALE);
+      const onGround = b.y <= rest + 0.002;
+      if (b.y < rest) {
+        b.y = rest;
+        b.vy = Math.abs(b.vy) > 0.6 ? -b.vy * 0.32 : 0;
+        if (Math.abs(b.vy) > 0.6) {
+          b.wx *= 0.6;
+          b.wz *= 0.6;
+        }
+      }
+      if (onGround) {
+        const fr = Math.pow(0.04, dt);
+        b.vx *= fr;
+        b.vz *= fr;
+        // settle onto the flat face or the dome
+        const target = Math.round(b.rx / Math.PI) * Math.PI;
+        b.wx *= Math.pow(0.02, dt);
+        b.wz *= Math.pow(0.02, dt);
+        b.rx += (target - b.rx) * Math.min(1, dt * 8);
+        b.rz += (0 - b.rz) * Math.min(1, dt * 8);
+        b.yaw += Math.hypot(b.vx, b.vz) * dt * 2;
+      }
+      b.rx += b.wx * dt;
+      b.rz += b.wz * dt;
+      pushOutOfBottle(b, 0.1);
+      for (const c of ICE) {
+        const dx = b.x - c.x;
+        const dz = b.z - c.z;
+        const d = Math.hypot(dx, dz);
+        const min = c.s * 0.62;
+        if (d < min && b.y < c.s) {
+          b.x = c.x + (dx / (d || 1)) * min;
+          b.z = c.z + (dz / (d || 1)) * min;
+          b.vx *= -0.3;
+          b.vz *= -0.3;
+        }
+      }
+      b.x = THREE.MathUtils.clamp(b.x, -5.5, 5.5);
+      b.z = THREE.MathUtils.clamp(b.z, -2.5, 3.2);
+    }
+    // beans nudge each other apart
+    for (let i = 0; i < BEANS; i++) {
+      const a = bean[i];
+      for (let j = i + 1; j < BEANS; j++) {
+        const b = bean[j];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > 0.04) continue;
+        const dy = b.y - a.y;
+        if (Math.abs(dy) > 0.035 && Math.abs(dy) < 0.2 && d2 < 0.022) {
+          // stacked: the upper bean rests on the lower one (that's what keeps the heap a heap)
+          const [lo, hi] = dy > 0 ? [a, b] : [b, a];
+          if (hi.y < lo.y + 0.07) {
+            hi.y = lo.y + 0.07;
+            if (hi.vy < 0) hi.vy = 0;
+          }
+          continue;
+        }
+        if (Math.abs(dy) > 0.12) continue;
+        const d = Math.sqrt(d2) || 0.001;
+        const push = (0.2 - d) * 0.5;
+        a.x -= (dx / d) * push;
+        a.z -= (dz / d) * push;
+        b.x += (dx / d) * push;
+        b.z += (dz / d) * push;
+      }
+    }
+    // ice: heavier, slides and clinks
+    for (const c of ICE) {
+      if (pointer.onFloor) {
+        const dx = c.x - pointer.fx;
+        const dz = c.z - pointer.fz;
+        const d = Math.hypot(dx, dz) || 1;
+        if (d < 0.75) {
+          const f = (1 - d / 0.75) * 4;
+          c.vx += (dx / d) * f * dt + pointer.fvx * 0.8;
+          c.vz += (dz / d) * f * dt + pointer.fvz * 0.8;
+          const now = performance.now();
+          if (now - lastClink > 260 && Math.hypot(c.vx, c.vz) > 0.4) {
+            lastClink = now;
+            play("clink");
+          }
+        }
+      }
+      c.x += c.vx * dt;
+      c.z += c.vz * dt;
+      const fr = Math.pow(0.15, dt);
+      c.vx *= fr;
+      c.vz *= fr;
+      c.yaw += Math.hypot(c.vx, c.vz) * dt * 0.8;
+      pushOutOfBottle(c, c.s * 0.55);
+      c.x = THREE.MathUtils.clamp(c.x, -5, 5);
+      c.z = THREE.MathUtils.clamp(c.z, -2.2, 3);
+      c.mesh.position.set(c.x, c.y, c.z);
+      c.mesh.rotation.set(0, c.yaw, 0);
+    }
+    for (let i = 0; i < ICE.length; i++)
+      for (let j = i + 1; j < ICE.length; j++) {
+        const a = ICE[i];
+        const b = ICE[j];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const d = Math.hypot(dx, dz) || 0.001;
+        const min = (a.s + b.s) * 0.55;
+        if (d < min) {
+          const push = (min - d) / 2;
+          a.x -= (dx / d) * push;
+          a.z -= (dz / d) * push;
+          b.x += (dx / d) * push;
+          b.z += (dz / d) * push;
+          const rel = Math.hypot(a.vx - b.vx, a.vz - b.vz);
+          [a.vx, b.vx] = [b.vx * 0.6, a.vx * 0.6];
+          [a.vz, b.vz] = [b.vz * 0.6, a.vz * 0.6];
+          const now = performance.now();
+          if (rel > 0.3 && now - lastClink > 180) {
+            lastClink = now;
+            play("clink");
+          }
+        }
+      }
+    // write bean matrices
+    for (let i = 0; i < BEANS; i++) {
+      const b = bean[i];
+      tmpE.set(b.rx, b.yaw, b.rz, "YXZ");
+      tmpQ.setFromEuler(tmpE);
+      tmpM.compose(tmpP.set(b.x, b.y, b.z), tmpQ, tmpS.setScalar(b.s));
+      beans.setMatrixAt(i, tmpM);
+    }
+    beans.instanceMatrix.needsUpdate = true;
+    pointer.fvx *= 0.6;
+    pointer.fvz *= 0.6;
+  };
+
+  const step = (dt: number, t: number) => {
+    pointer.x += (pointer.tx - pointer.x) * Math.min(1, dt * 3);
+    pointer.y += (pointer.ty - pointer.y) * Math.min(1, dt * 3);
+
+    // spin momentum from dragging
+    if (!spin.dragging) {
+      spin.extra += spin.v * dt * 0.15;
+      spin.v *= Math.pow(0.08, dt);
+    }
+    spin.shakeKick *= Math.pow(0.15, dt);
+    const shake = Math.max(S.shake, spin.shakeKick);
+
+    const shakeZ = Math.sin(t * 26) * 0.09 * shake;
+    const swirlZ = Math.sin(t * 5.5) * 0.07 * S.swirl;
+    const swirlX = Math.cos(t * 5.5) * 0.07 * S.swirl;
+    bottle.rotation.set(swirlX, S.rotY + spin.extra + pointer.x * 0.25, shakeZ + swirlZ);
+    bottle.position.y = Math.abs(Math.sin(t * 26)) * 0.05 * shake;
+
+    camera.position.set(S.camX + pointer.x * 0.35, S.camY + pointer.y * 0.18, S.camZ);
+    look.set(S.lookX, S.lookY, 0);
+    camera.lookAt(look);
+
+    // slosh
+    const rz = bottle.rotation.z;
+    const kick = (rz - lastRotZ) / Math.max(dt, 0.001);
+    lastRotZ = rz;
+    slosh.v += (-slosh.a * 38 - slosh.v * 3 - kick * 0.7 - spin.v * 0.02) * dt;
+    slosh.a += slosh.v * dt;
+    slosh.vb += (-slosh.b * 38 - slosh.vb * 3 - S.swirl * Math.sin(t * 5.5) * 2) * dt;
+    slosh.b += slosh.vb * dt;
+    n.set(THREE.MathUtils.clamp(slosh.a, -0.3, 0.3), 1, THREE.MathUtils.clamp(slosh.b, -0.3, 0.3)).normalize();
+
+    bottle.updateMatrixWorld();
+    const centre = new THREE.Vector3(0, LEVEL, 0).applyMatrix4(bottle.matrixWorld);
+    coffeeTop.setFromNormalAndCoplanarPoint(n.clone().negate(), centre);
+    surface.position.copy(centre);
+    surface.quaternion.setFromUnitVectors(up, n);
+    surface.rotateY(bottle.rotation.y);
+    surface.scale.set(rIn * 1.01, 1, rIn * 1.01 * FLAT);
+    foam.position.copy(centre);
+    foam.quaternion.copy(surface.quaternion);
+
+    const milkCentre = new THREE.Vector3(0, S.milk, 0).applyMatrix4(bottle.matrixWorld);
+    milkTop.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, -1, 0), milkCentre);
+    const hasMilk = S.milk > 0.1;
+    if (hasMilk) milkTopForCoffee.setFromNormalAndCoplanarPoint(up, milkCentre);
+    else milkTopForCoffee.set(up, 1);
+    milkSurface.position.y = S.milk;
+    milkSurface.visible = milkVol.visible = hasMilk;
+
+    coffeeColor.copy(COFFEE).lerp(LATTE, S.latte);
+    coffeeMat.color.copy(coffeeColor);
+    surfaceMat.color.copy(coffeeColor).lerp(LATTE, 0.15);
+    bubbleMat.color.set(0x6b4a2a).lerp(new THREE.Color(0xc9a77c), S.latte);
+
+    shotPivot.visible = S.shotIn > 0.01;
+    shotPivot.position.set(S.shotX, S.shotY, 0);
+    shotPivot.rotation.z = S.shotTilt;
+    shotMilk.scale.y = S.shotMilk;
+    stream.visible = S.stream > 0 && S.streamEnd < 1;
+    const startIdx = Math.floor((S.streamEnd * streamIndex) / 6) * 6;
+    const endIdx = Math.floor((S.stream * streamIndex) / 6) * 6;
+    streamGeo.setDrawRange(startIdx, Math.max(0, endIdx - startIdx));
+
+    beamMat.uniforms.uStrength.value = S.beam;
+    const p = dustGeo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < DUST; i++) {
+      let y = p.getY(i) + dt * 0.08;
+      if (y > 9) y = 0;
+      p.setY(i, y);
+    }
+    p.needsUpdate = true;
+    bokeh.children.forEach((s, i) => {
+      s.position.y += Math.sin(t * 0.3 + s.userData.phase) * 0.0015;
+      (s as THREE.Sprite).material.opacity = 0.12 + 0.25 * (0.5 + 0.5 * Math.sin(t * 0.5 + i));
+    });
+
+    physics(dt);
+  };
+
+  const tick = () => {
+    raf = requestAnimationFrame(tick);
+    if (!running) return;
+    const dt = Math.min(clock.getDelta(), 0.05);
+    step(dt, clock.elapsedTime);
+    render();
+  };
+
+  // compile every shader up front (in parallel where the browser allows)
+  resize();
+  await renderer.compileAsync(scene, camera).catch(() => {});
+
+  // ============================== product renders for the line-up cards ===
+  const renders: Record<string, string> = {};
+  {
+    const initial = { ...S };
+    const keep = { rim: rim.color.clone(), rim2: rim2.color.clone() };
+    renderer.setSize(600, 680, false);
+    composer?.setSize(600, 680);
+    camera.aspect = 600 / 680;
+    camera.fov = 30;
+    camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+    for (const f of flavours) {
+      rim.color.set(f.accent);
+      rim2.color.set(f.accent).lerp(new THREE.Color(0xffffff), 0.4);
+      COFFEE.set(f.liquid);
+      Object.assign(S, { rotY: 0.3, camX: 0.3, camY: 2.3, camZ: 10.2, lookX: -0.3, lookY: 2.0 });
+      step(1 / 60, 0);
+      camera.position.set(0.3, 2.3, 10.2);
+      camera.lookAt(-0.3, 2.0, 0);
+      render();
+      renders[f.id] = canvas.toDataURL("image/jpeg", 0.9);
+    }
+    rim.color.copy(keep.rim);
+    rim2.color.copy(keep.rim2);
+    COFFEE.set(0x160a04);
+    Object.assign(S, initial);
+  }
+
+  resize();
+  const ro = new ResizeObserver(resize);
+  ro.observe(canvas);
+  tick();
+
+  return {
+    setProgress: (p) => tl.progress(Math.min(1, Math.max(0, p))),
+    setRunning: (on) => {
+      running = on;
+      if (on) clock.getDelta();
+    },
+    renders,
+    dispose: () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      tl.kill();
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("pointercancel", onUp);
+      canvas.removeEventListener("pointerleave", onLeave);
+      document.documentElement.dataset.cursor = "";
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        m.geometry?.dispose();
+        const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+        (Array.isArray(mat) ? mat : mat ? [mat] : []).forEach((x) => x.dispose());
+      });
+      env.dispose();
+      pmrem.dispose();
+      reflector?.dispose();
+      composer?.dispose();
+      renderer.dispose();
+    },
+  };
+}

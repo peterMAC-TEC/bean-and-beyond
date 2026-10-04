@@ -1,0 +1,239 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import { gsap } from "@/lib/gsap";
+import { useReducedMotion } from "@/lib/useReducedMotion";
+import { useFrameSequence } from "@/lib/useFrameSequence";
+import { site } from "@/content/site";
+import { Button } from "./Button";
+
+// dust floating in the spotlight; fixed values so server and browser agree
+const DUST = Array.from({ length: 22 }, (_, i) => ({
+  left: 38 + ((i * 37) % 24),
+  top: 30 + ((i * 53) % 55),
+  size: 1 + (i % 3),
+  t: 7 + (i % 5) * 2,
+  delay: -(i * 0.9),
+  dx: ((i % 5) - 2) * 8,
+  o: 0.25 + (i % 4) * 0.12,
+}));
+
+/**
+ * Hero: the real bottle (cut out of the 360° video) under a bar spotlight.
+ * Scrolling turns it one full circle while the spec chapters change; moving
+ * the mouse (or dragging on a phone) turns it by hand.
+ */
+export function Hero() {
+  const root = useRef<HTMLElement>(null);
+  const deg = useRef<HTMLSpanElement>(null);
+  const reduced = useReducedMotion();
+  const { canvas, ready, draw } = useFrameSequence("spin", { fit: "contain" });
+
+  useEffect(() => {
+    const el = root.current!;
+    const q = gsap.utils.selector(el);
+    const chapters = q(".h-ch");
+    const kickers = q(".h-kick");
+
+    // entrance once the loader opens
+    const intro = gsap.timeline({ paused: true });
+    intro
+      .fromTo(q(".h-stage"), { opacity: 0, scale: 0.94, y: 30 }, { opacity: 1, scale: 1, y: 0, duration: 1.6, ease: "power3.out" })
+      .fromTo(q(".h-in"), { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.9, stagger: 0.08, ease: "power3.out" }, 0.3);
+    const start = () => intro.play();
+    if (document.getElementById("bb-loader")) window.addEventListener("bb:ready", start, { once: true });
+    else start();
+
+    if (reduced) {
+      intro.progress(1);
+      gsap.set(chapters, { opacity: 0 });
+      gsap.set(chapters[0], { opacity: 1 });
+      gsap.set(kickers, { opacity: 0 });
+      gsap.set(kickers[0], { opacity: 1 });
+      return () => window.removeEventListener("bb:ready", start);
+    }
+
+    // rotation = scroll turn + hand turn
+    const turn = { scroll: 0, hand: 0, handTarget: 0 };
+    const render = () => {
+      turn.hand += (turn.handTarget - turn.hand) * 0.08;
+      const p = (((turn.scroll + turn.hand) % 1) + 1) % 1;
+      draw.current(p);
+      if (deg.current) deg.current.textContent = String(Math.round(p * 360)).padStart(3, "0");
+    };
+    gsap.ticker.add(render);
+
+    gsap.set(chapters, { opacity: 0, y: 16 });
+    gsap.set(chapters[0], { opacity: 1, y: 0 });
+    gsap.set(kickers, { opacity: 0 });
+    gsap.set(kickers[0], { opacity: 1 });
+    const tl = gsap.timeline({
+      defaults: { ease: "none" },
+      scrollTrigger: {
+        trigger: el,
+        start: "top top",
+        end: "+=220%",
+        pin: true,
+        scrub: 0.8,
+        onUpdate: (self) => (turn.scroll = self.progress),
+      },
+    });
+    const n = chapters.length;
+    for (let i = 1; i < n; i++) {
+      const at = i / n;
+      tl.to([chapters[i - 1], kickers[i - 1]], { opacity: 0, y: -16, duration: 0.06 }, at - 0.04).fromTo(
+        [chapters[i], kickers[i]],
+        { opacity: 0, y: 16 },
+        { opacity: 1, y: 0, duration: 0.06 },
+        at + 0.02,
+      );
+    }
+    tl.to(q(".h-ghost"), { xPercent: -12, duration: 1 }, 0);
+
+    // hand: mouse position on desktop, horizontal drag on touch
+    const fine = window.matchMedia("(pointer: fine)").matches;
+    const onMove = (e: MouseEvent) => (turn.handTarget = (e.clientX / innerWidth - 0.5) * 0.5);
+    let dragX: number | null = null;
+    let base = 0;
+    const onDown = (e: PointerEvent) => {
+      dragX = e.clientX;
+      base = turn.handTarget;
+    };
+    const onDrag = (e: PointerEvent) => {
+      if (dragX !== null) turn.handTarget = base + (e.clientX - dragX) / innerWidth;
+    };
+    const onUp = () => (dragX = null);
+    const stage = q(".h-stage")[0] as HTMLElement;
+    if (fine) el.addEventListener("mousemove", onMove);
+    else {
+      stage.addEventListener("pointerdown", onDown);
+      window.addEventListener("pointermove", onDrag);
+      window.addEventListener("pointerup", onUp);
+    }
+
+    const io = new IntersectionObserver(([e]) => el.classList.toggle("bb-paused", !e.isIntersecting));
+    io.observe(el);
+
+    return () => {
+      gsap.ticker.remove(render);
+      io.disconnect();
+      intro.kill();
+      tl.scrollTrigger?.kill();
+      tl.kill();
+      window.removeEventListener("bb:ready", start);
+      el.removeEventListener("mousemove", onMove);
+      stage.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onDrag);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [reduced, draw]);
+
+  // reduced motion: a still, facing front
+  useEffect(() => {
+    if (reduced && ready) draw.current(0);
+  }, [reduced, ready, draw]);
+
+  const { hero } = site;
+
+  return (
+    <section ref={root} id="bottle" className="relative h-[100svh] overflow-hidden bg-ink">
+      {/* room light, spotlight cone and the bar floor */}
+      <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(ellipse 60% 55% at 50% 42%, #2a1f14 0%, #120e0a 55%, var(--ink) 100%)" }} />
+      <div
+        aria-hidden
+        className="absolute left-1/2 top-0 h-[88%] w-[110vh] max-w-[160vw] -translate-x-1/2"
+        style={{ background: "linear-gradient(180deg, rgba(255,236,200,.16), rgba(255,236,200,.04) 65%, transparent)", clipPath: "polygon(44% 0, 56% 0, 86% 100%, 14% 100%)" }}
+      />
+      <div aria-hidden className="absolute inset-x-0 bottom-0 h-[24%]" style={{ background: "linear-gradient(180deg, rgba(220,192,138,.14) 0, transparent 2px), linear-gradient(180deg, #17110b, #0b0907 80%)" }} />
+      <div aria-hidden className="absolute bottom-[24%] left-1/2 h-24 w-[70vh] max-w-[90vw] -translate-x-1/2 translate-y-1/2 rounded-[50%]" style={{ background: "radial-gradient(ellipse, rgba(255,226,170,.22), transparent 70%)" }} />
+
+      {/* giant ghost type behind the bottle */}
+      <p
+        aria-hidden
+        className="h-ghost hud pointer-events-none absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-[34vw] font-extralight leading-none text-transparent sm:text-[24vw]"
+        style={{ WebkitTextStroke: "1px rgba(220,192,138,.12)" }}
+      >
+        0% ABV
+      </p>
+
+      {/* smoke and dust */}
+      {!reduced && (
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="bb-smoke absolute h-[55vh] w-[55vh] rounded-full"
+              style={{ left: `${28 + i * 12}%`, bottom: "16%", background: "radial-gradient(circle, rgba(239,230,214,.07), transparent 62%)", animationDelay: `${i * -3.5}s` }}
+            />
+          ))}
+          {DUST.map((d, i) => (
+            <span
+              key={i}
+              className="bb-dust absolute rounded-full bg-[#ffe9c2]"
+              style={{ left: `${d.left}%`, top: `${d.top}%`, width: d.size, height: d.size, animationDelay: `${d.delay}s`, ["--t" as string]: `${d.t}s`, ["--dx" as string]: `${d.dx}px`, ["--o" as string]: d.o }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* the bottle */}
+      <div className="h-stage absolute bottom-[24%] left-1/2 aspect-[478/850] h-[60svh] max-h-[760px] -translate-x-1/2 translate-y-[8%] touch-pan-y md:h-[74svh]">
+        <canvas
+          ref={canvas}
+          role="img"
+          aria-label="A Bean & Beyond bottle in green glass with its black and gold label"
+          className={`h-full w-full transition-opacity duration-700 [-webkit-box-reflect:below_-2px_linear-gradient(transparent_78%,rgba(255,255,255,.14))] ${ready ? "opacity-100" : "opacity-0"}`}
+          style={{ filter: "drop-shadow(0 30px 40px rgba(0,0,0,.65)) contrast(1.05) saturate(1.08)" }}
+        />
+        {!ready && <p className="mono absolute inset-0 flex items-center justify-center text-muted">Loading BB-01…</p>}
+      </div>
+
+      {/* left: headline and the changing chapter */}
+      <div className="absolute inset-x-0 top-[64px] px-5 sm:px-8 md:bottom-12 md:top-24 md:flex md:flex-col md:justify-center lg:right-auto lg:w-[38%] lg:pl-12">
+        <div className="mono h-in relative h-4 text-muted">
+          {hero.chapters.map((c) => (
+            <span key={c.kicker} className="h-kick absolute left-0 top-0 whitespace-nowrap">
+              {hero.kicker} <span className="text-glow">{"// "}{c.kicker}</span>
+            </span>
+          ))}
+        </div>
+        <h1 className="h-in hud mt-3 max-w-[14ch] text-[clamp(2.3rem,6.2vw,5.6rem)] font-extralight leading-[0.92] text-cream">{hero.headline}</h1>
+        <div className="h-in relative mt-5 hidden h-28 max-w-sm md:block">
+          {hero.chapters.map((c) => (
+            <div key={c.title} className="h-ch absolute inset-0">
+              <p className="serif text-2xl italic text-gold">{c.title}</p>
+              <p className="mt-2 text-[15px] leading-relaxed text-muted">{c.text}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* right: spec sheet */}
+      <div className="h-in absolute right-12 top-1/2 hidden w-[22%] min-w-[240px] -translate-y-1/2 lg:block">
+        <p className="mono text-muted">Spec sheet · BB-01</p>
+        <ul className="mt-4 space-y-3">
+          {hero.specs.map(([k, v]) => (
+            <li key={k} className="spec hud text-[15px]">
+              <span className="text-muted">{k}</span>
+              <i />
+              <b className="font-normal text-cream">{v}</b>
+            </li>
+          ))}
+        </ul>
+        <p className="hud mt-8 text-[64px] font-extralight leading-none text-glow">0%</p>
+        <p className="mono mt-1 text-muted">Alcohol by volume · ID not required</p>
+        <div className="mt-8">
+          <Button href="#lineup">+ Order a bottle · ₹249</Button>
+        </div>
+      </div>
+
+      {/* phones: facts under the bottle */}
+      <p className="mono h-in absolute inset-x-0 bottom-14 px-5 text-muted lg:hidden">180 ml · 30 ml milk · 0% ABV · ₹249</p>
+
+      {/* rotation readout */}
+      <p className="mono h-in absolute bottom-[calc(24%-28px)] left-1/2 hidden -translate-x-1/2 text-muted md:block">
+        Move to turn · <span ref={deg}>000</span>°
+      </p>
+    </section>
+  );
+}

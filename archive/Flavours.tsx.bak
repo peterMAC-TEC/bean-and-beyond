@@ -1,0 +1,138 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { gsap } from "@/lib/gsap";
+import { useReducedMotion } from "@/lib/useReducedMotion";
+import { play } from "@/lib/sound";
+import { site, type Flavour } from "@/content/site";
+import { Bottle } from "./Bottle";
+import { Button } from "./Button";
+import { TextReveal } from "./TextReveal";
+
+/**
+ * Flavour switcher. Picking a flavour sends a liquid wave up the screen,
+ * recolours the whole page (CSS variables on <html>), swaps the bottle,
+ * clinks some ice and swirls the coffee.
+ */
+export function Flavours() {
+  const [current, setCurrent] = useState<Flavour>(site.flavours[0]);
+  const wipe = useRef<HTMLDivElement>(null);
+  const bottle = useRef<HTMLDivElement>(null);
+  const busy = useRef(false);
+  const reduced = useReducedMotion();
+
+  const choose = (f: Flavour) => {
+    if (f.id === current.id || busy.current) return;
+    play("clink");
+    const apply = () => {
+      document.documentElement.dataset.flavour = f.id;
+      setCurrent(f);
+    };
+    if (reduced) return apply();
+    busy.current = true;
+    const w = wipe.current!;
+    w.style.setProperty("--wipe", f.accent);
+    gsap
+      .timeline({ onComplete: () => void (busy.current = false) })
+      .fromTo(w, { yPercent: 150, visibility: "visible" }, { yPercent: 0, duration: 0.5, ease: "power2.in" })
+      .call(apply)
+      .to(w, { yPercent: -150, duration: 0.6, ease: "power2.out" })
+      .set(w, { visibility: "hidden" });
+  };
+
+  // new bottle slides in and its coffee swirls
+  useEffect(() => {
+    const b = bottle.current;
+    if (!b || reduced) return;
+    const t = gsap.timeline();
+    t.fromTo(b, { y: 40, rotate: -8, opacity: 0 }, { y: 0, rotate: 0, opacity: 1, duration: 0.7, ease: "back.out(1.6)" }).fromTo(
+      b.querySelector(".bb-slosh"),
+      { rotation: 26 },
+      { rotation: 0, duration: 1.8, ease: "elastic.out(1,0.25)" },
+      0,
+    );
+    return () => {
+      t.kill();
+    };
+  }, [current, reduced]);
+
+  const whatsapp = `https://wa.me/${site.contact.whatsapp}?text=${encodeURIComponent(`Hi! I'd like to order a ${current.name} bottle.`)}`;
+
+  return (
+    <section id="flavours" className="relative overflow-hidden px-6 py-28">
+      {/* liquid wipe */}
+      <div ref={wipe} aria-hidden className="pointer-events-none fixed inset-0 z-[60]" style={{ transform: "translateY(150%)", visibility: "hidden" }}>
+        <svg viewBox="0 0 1200 120" preserveAspectRatio="none" className="absolute -top-[119px] h-[120px] w-full">
+          <path d="M0 60 C200 0 400 120 600 60 S1000 0 1200 60 V120 H0Z" fill="var(--wipe)" />
+        </svg>
+        <div className="h-full w-full" style={{ background: "var(--wipe)" }} />
+        <svg viewBox="0 0 1200 120" preserveAspectRatio="none" className="absolute -bottom-[119px] h-[120px] w-full rotate-180">
+          <path d="M0 60 C200 0 400 120 600 60 S1000 0 1200 60 V120 H0Z" fill="var(--wipe)" />
+        </svg>
+      </div>
+
+      <div className="mx-auto max-w-6xl">
+        <TextReveal text={site.flavoursHeading} className="text-center font-display text-5xl text-label sm:text-7xl" />
+
+        <div role="tablist" aria-label="Flavours" className="mx-auto mt-10 flex w-fit gap-1 rounded-full border border-gold/40 p-1">
+          {site.flavours.map((f) => (
+            <button
+              key={f.id}
+              role="tab"
+              aria-selected={f.id === current.id}
+              aria-controls="flavour-panel"
+              onClick={() => choose(f)}
+              className={`rounded-full px-5 py-2.5 text-sm font-semibold tracking-wide transition-colors sm:px-7 ${
+                f.id === current.id ? "bg-accent text-espresso" : "text-label/80 hover:text-accent"
+              }`}
+            >
+              {f.name}
+            </button>
+          ))}
+        </div>
+
+        <div id="flavour-panel" role="tabpanel" className="mt-14 grid items-center gap-12 md:grid-cols-2">
+          <div className="relative flex justify-center">
+            <div aria-hidden className="absolute top-1/2 h-72 w-72 -translate-y-1/2 rounded-full opacity-50 blur-3xl" style={{ background: "var(--accent)" }} />
+            <div ref={bottle} key={current.id} className="relative">
+              <Bottle level={0.9} liquid={current.liquid} glass={current.glass as "clear" | "green"} className="h-[46svh] max-h-[460px] min-h-[300px] drop-shadow-[0_30px_40px_rgba(0,0,0,.6)]" />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-4">
+              <h3 className="font-display text-5xl text-accent sm:text-6xl">{current.name}</h3>
+              <span className="rotate-[-6deg] rounded-full border-2 border-dashed border-[#c9654a] px-3 py-2 text-center font-display text-[10px] leading-tight tracking-widest text-[#e07a5c]">
+                0%
+                <br />
+                ALCOHOL
+              </span>
+            </div>
+            <p className="mt-4 text-xl text-label/90">{current.oneLiner}</p>
+            <p className="mt-2 text-sm text-label/60">180 ml black coffee + 30 ml condensed milk</p>
+            <p className="mt-6 font-display text-4xl text-milk">₹{current.price}</p>
+
+            <div className="mt-8 rounded-lg border border-gold/30 bg-roast/70 p-5">
+              <p className="font-display text-xs tracking-[0.4em] text-gold">HOW TO SERVE</p>
+              <ol className="mt-3 flex flex-wrap gap-x-2 gap-y-1 text-label/85">
+                {site.serving.map((s, i) => (
+                  <li key={s}>
+                    {s}
+                    {i < site.serving.length - 1 && <span className="ml-2 text-gold">›</span>}
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            {/* TODO (Phase 3): becomes "Add to cart" once the cart exists */}
+            <div className="mt-8">
+              <Button href={whatsapp} external>
+                Order {current.name} on WhatsApp
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+/* ---------- Bean & Beyond design tokens ----------
+   Dark, cinematic, with a technical "spec sheet" layer on top.
+   Gold and parchment are lifted from the printed label. */
+:root {
+  --ink: #0b0907; /* page */
+  --panel: #14100c; /* cards */
+  --panel-2: #1b1610;
+  --line: rgba(220, 192, 138, 0.16); /* hairlines */
+  --cream: #efe6d6; /* text */
+  --muted: #8f8577; /* secondary text */
+  --gold: #dcc08a; /* label gold */
+  --glow: #e9c46a; /* highlights, progress, prices */
+  --parch: #e9d6ac; /* label parchment */
+  --brick: #c42b1c; /* label red */
+  --green: #2f7a45; /* bottle glass */
+
+  /* kept for older components */
+  --espresso: var(--ink);
+  --roast: var(--panel);
+  --label: var(--cream);
+  --milk: #f7edd3;
+  --accent: var(--glow);
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-line: var(--line);
+  --color-cream: var(--cream);
+  --color-muted: var(--muted);
+  --color-gold: var(--gold);
+  --color-glow: var(--glow);
+  --color-parch: var(--parch);
+  --color-brick: var(--brick);
+  --color-espresso: var(--ink);
+  --color-roast: var(--panel);
+  --color-label: var(--cream);
+  --color-milk: var(--milk);
+  --color-accent: var(--glow);
+  --font-display: var(--font-display);
+  --font-hud: var(--font-hud);
+  --font-mono: var(--font-mono);
+  --font-brush: var(--font-display);
+  --font-sans: var(--font-hud);
+}
+
+html {
+  background: var(--ink);
+  color: var(--cream);
+}
+html, body { overflow-x: clip; }
+body {
+  font-family: var(--font-hud), system-ui, sans-serif;
+  font-weight: 300;
+  letter-spacing: 0.01em;
+}
+
+html.custom-cursor, html.custom-cursor * { cursor: none !important; }
+::selection { background: var(--glow); color: var(--ink); }
+:focus-visible { outline: 1px solid var(--glow); outline-offset: 3px; }
+
+/* ---------- type helpers ---------- */
+.hud { font-family: var(--font-hud); text-transform: uppercase; letter-spacing: 0.04em; }
+.mono { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; }
+.serif { font-family: var(--font-display); }
+
+/* dotted spec leaders: <li class="spec"><span>Label</span><i></i><b>Value</b></li> */
+.spec { display: flex; align-items: baseline; gap: 10px; }
+.spec i { flex: 1; border-bottom: 1px dotted rgba(220, 192, 138, 0.3); transform: translateY(-4px); }
+
+/* corner brackets around a box */
+.brackets { position: relative; }
+.brackets::before, .brackets::after {
+  content: ""; position: absolute; width: 14px; height: 14px; border-color: var(--gold); opacity: .6; pointer-events: none;
+}
+.brackets::before { top: 0; left: 0; border-top: 1px solid; border-left: 1px solid; }
+.brackets::after { bottom: 0; right: 0; border-bottom: 1px solid; border-right: 1px solid; }
+
+/* ---------- motion ---------- */
+@keyframes bb-smoke {
+  0% { transform: translate3d(-6%, 12%, 0) scale(1); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translate3d(8%, -45%, 0) scale(1.8); opacity: 0; }
+}
+.bb-smoke { animation: bb-smoke 14s ease-out infinite; will-change: transform, opacity; }
+
+@keyframes bb-dust {
+  0% { transform: translate3d(0, 0, 0); opacity: 0; }
+  20%, 80% { opacity: var(--o, .6); }
+  100% { transform: translate3d(var(--dx, 10px), -120px, 0); opacity: 0; }
+}
+.bb-dust { animation: bb-dust var(--t, 9s) linear infinite; }
+
+@keyframes bb-blink { 50% { opacity: 0; } }
+.bb-blink { animation: bb-blink 1.2s steps(1) infinite; }
+
+/* sections pause their CSS animations when off-screen */
+.bb-paused * { animation-play-state: paused !important; }
+
+/* cinematic finish: film grain and a soft vignette over everything */
+.bb-grain {
+  position: fixed; inset: -50%; z-index: 9990; pointer-events: none; opacity: 0.06;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: bb-grain 0.9s steps(6) infinite;
+}
+@keyframes bb-grain {
+  0% { transform: translate(0, 0); } 20% { transform: translate(-3%, 2%); } 40% { transform: translate(2%, -3%); }
+  60% { transform: translate(-2%, -1%); } 80% { transform: translate(3%, 3%); } 100% { transform: translate(0, 0); }
+}
+.bb-vignette {
+  position: fixed; inset: 0; z-index: 9989; pointer-events: none;
+  background: radial-gradient(ellipse 90% 80% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.6));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes bb-ticker { to { transform: translateX(-33.333%); } }
+.bb-ticker { animation: bb-ticker 40s linear infinite; }

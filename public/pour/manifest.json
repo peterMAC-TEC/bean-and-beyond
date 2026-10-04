@@ -1,0 +1,5 @@
+{
+  "count": 96,
+  "transparent": true,
+  "pattern": "/pour/{size}/frame-{i}.webp"
+}

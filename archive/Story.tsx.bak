@@ -1,0 +1,199 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { site } from "@/content/site";
+import { useReducedMotion } from "@/lib/useReducedMotion";
+import { setRenders } from "@/lib/renders";
+import type { Studio } from "@/lib/studio";
+import { Button } from "./Button";
+
+// the 3D bottle covers the first chapters; the pour has its own section (Marble)
+const STORY = site.story.filter((c) => c.section === "bottle");
+const STORY_END = 0.36; // where the bottle chapters end on the studio timeline
+const BOTTLE_H = 320; // section height (svh)
+const FADE = 0.025;
+const FALLBACK_IMAGE = "/spin/d/frame-0001.webp"; // still of the real bottle, if 3D can't run
+
+function Extra({ kind }: { kind: string }) {
+  if (kind === "specs")
+    return (
+      <div className="w-full max-w-[280px]">
+        <p className="mono text-muted">Spec sheet · BB-01</p>
+        <ul className="mt-4 space-y-3">
+          {site.hero.specs.map(([k, v]) => (
+            <li key={k} className="spec hud text-[15px]">
+              <span className="text-muted">{k}</span>
+              <i />
+              <b className="font-normal text-cream">{v}</b>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  if (kind === "warning")
+    return (
+      <div className="max-w-[340px] rounded-sm bg-parch p-4 text-[#2a1d12] shadow-[0_20px_50px_rgba(0,0,0,.5)]">
+        <p className="text-center text-lg font-extrabold text-brick">{site.warning.heading}</p>
+        <p className="mt-1 text-sm leading-snug">{site.warning.lines.join(" ")}</p>
+      </div>
+    );
+  if (kind === "proof")
+    return (
+      <div>
+        <p className="hud text-[clamp(5rem,12vw,11rem)] font-extralight leading-none text-glow">0%</p>
+        <p className="mono text-muted">Alcohol by volume · ID not required</p>
+      </div>
+    );
+  if (kind === "milk")
+    return (
+      <div className="brackets p-4">
+        <p className="mono text-muted">Condensed milk in</p>
+        <p className="hud text-6xl font-extralight text-cream">
+          <span data-milk>00</span>
+          <span className="text-2xl text-muted"> / 30 ml</span>
+        </p>
+      </div>
+    );
+  if (kind === "cta")
+    return (
+      <div className="pointer-events-auto flex flex-wrap gap-3">
+        <Button href="#lineup">+ Order a bottle · ₹249</Button>
+        <Button href="#lineup" variant="outline">
+          See the line-up
+        </Button>
+      </div>
+    );
+  return null;
+}
+
+/**
+ * The scroll story: a 3D product shoot of the bottle (lib/studio.ts) on a
+ * sticky stage, with chapters fading in and out as you scroll. Covers both
+ * "The Bottle" and "The Ritual" sections of the navigation.
+ */
+export function Story() {
+  const wrap = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const studio = useRef<Studio | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "fallback">("loading");
+  const reduced = useReducedMotion();
+  const view = reduced ? "fallback" : state;
+
+  // ---- start the 3D studio after the loading screen ----
+  useEffect(() => {
+    if (reduced) return; // reduced motion: the still image, no 3D
+    let cancelled = false;
+    const start = async () => {
+      const test = document.createElement("canvas");
+      if (!(test.getContext("webgl2") || test.getContext("webgl"))) return setState("fallback");
+      try {
+        const { createStudio } = await import("@/lib/studio");
+        if (cancelled || !canvas.current) return;
+        const s = await createStudio(canvas.current, site.flavours);
+        if (cancelled) return s.dispose();
+        studio.current = s;
+        setRenders(s.renders);
+        window.dispatchEvent(new Event("scroll"));
+        setState("ready");
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setState("fallback");
+      }
+    };
+    if (document.getElementById("bb-loader")) window.addEventListener("bb:ready", start, { once: true });
+    else void start();
+    return () => {
+      cancelled = true;
+      window.removeEventListener("bb:ready", start);
+      studio.current?.dispose();
+      studio.current = null;
+    };
+  }, [reduced]);
+
+  // ---- scroll drives the story; the pointer nudges the camera ----
+  useEffect(() => {
+    const el = wrap.current!;
+    const chapters = Array.from(el.querySelectorAll<HTMLElement>("[data-chapter]"));
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const top = el.getBoundingClientRect().top;
+      const range = el.offsetHeight - innerHeight;
+      const p = Math.min(1, Math.max(0, -top / range)) * STORY_END;
+      studio.current?.setProgress(p);
+      chapters.forEach((c, i) => {
+        const a = STORY[i].at;
+        const b = STORY[i + 1]?.at ?? 2;
+        const o = Math.min(i === 0 ? 1 : (p - a) / FADE, (b - p) / FADE, 1);
+        const v = Math.max(0, o);
+        c.style.opacity = String(v);
+        c.style.transform = `translateY(${(1 - v) * 18}px)`;
+        c.style.visibility = v > 0.01 ? "visible" : "hidden";
+      });
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    const io = new IntersectionObserver(([e]) => studio.current?.setRunning(e.isIntersecting));
+    io.observe(el);
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      io.disconnect();
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, []);
+
+  return (
+    <div ref={wrap} id="story" className="relative bg-ink">
+      <div className="sticky top-0 z-10 h-[100svh] overflow-hidden">
+        <canvas
+          ref={canvas}
+          role="img"
+          aria-label="A Bean & Beyond bottle on a bar with coffee beans and ice. Drag the bottle to spin it, click it to shake it, move through the beans to scatter them."
+          className={`absolute inset-0 touch-pan-y h-full w-full transition-opacity duration-1000 ${view === "ready" ? "opacity-100" : "opacity-0"}`}
+        />
+        {view === "fallback" && (
+          <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse 55% 60% at 50% 40%, #2a1f14, var(--ink) 75%)" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- transparent still, already sized */}
+            <img src={FALLBACK_IMAGE} alt="A Bean & Beyond bottle in green glass" className="absolute bottom-[14%] left-1/2 h-[62svh] -translate-x-1/2" />
+          </div>
+        )}
+        {view === "loading" && <p className="mono absolute inset-0 flex items-center justify-center text-muted">Setting up the bar…</p>}
+
+        {/* soft shade under the text so it stays readable over the scene */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink/90 via-transparent to-transparent lg:bg-gradient-to-r lg:from-ink/80 lg:via-transparent lg:to-ink/40" />
+
+        {STORY.map((c, i) => {
+          const Title = i === 0 ? "h1" : "h2";
+          return (
+            <div
+              key={c.kicker}
+              data-chapter
+              className="pointer-events-none absolute inset-x-0 bottom-12 top-14 flex flex-col justify-end gap-6 px-5 pb-6 sm:px-8 lg:flex-row lg:items-center lg:justify-between lg:px-12 lg:pb-0"
+              style={{ opacity: i === 0 ? 1 : 0, visibility: i === 0 ? "visible" : "hidden" }}
+            >
+              <div className="max-w-xl lg:max-w-[34%]">
+                <p className="mono text-muted">
+                  {c.section === "bottle" ? "Specifications" : "Instructions"} <span className="text-glow">{"// "}{c.kicker}</span>
+                </p>
+                <Title className="hud mt-3 text-[clamp(2.4rem,6vw,5.8rem)] font-extralight leading-[0.92] text-cream">{c.title}</Title>
+                <p className="mt-4 max-w-sm text-[16px] leading-relaxed text-muted">{c.text}</p>
+              </div>
+              {c.extra && (
+                <div className={`lg:mr-4 ${c.extra === "specs" || c.extra === "warning" ? "hidden lg:block" : ""}`}>
+                  <Extra kind={c.extra} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* invisible markers so the navigation knows which section you're in */}
+      <section id="bottle" aria-label="The bottle" className="pointer-events-none -mt-[100svh]" style={{ height: `${BOTTLE_H}svh` }} />
+    </div>
+  );
+}

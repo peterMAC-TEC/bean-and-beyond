@@ -1,0 +1,154 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import { gsap } from "@/lib/gsap";
+import { useReducedMotion } from "@/lib/useReducedMotion";
+import { useFrameSequence } from "@/lib/useFrameSequence";
+import { play } from "@/lib/sound";
+import { site } from "@/content/site";
+import { Button } from "./Button";
+
+/**
+ * The ritual: the real pour (assets-raw/pour.mp4, cut out by
+ * scripts/build-sequence.mjs) scrubbed by scroll, with step-by-step
+ * instructions and live readouts of the milk going in.
+ */
+const VIDEO_END = 0.9; // the footage finishes at 90% of the scroll
+const POUR_FROM = 0.12; // where the milk starts flowing in the footage
+const POUR_TO = 0.78;
+const STEPS_AT = [0, 0.14, 0.62, 0.86]; // when each step lights up
+
+export function Pour() {
+  const root = useRef<HTMLElement>(null);
+  const ml = useRef<HTMLSpanElement>(null);
+  const secs = useRef<HTMLSpanElement>(null);
+  const reduced = useReducedMotion();
+  const { canvas, ready, draw } = useFrameSequence("pour", { end: VIDEO_END, fit: "contain" });
+
+  useEffect(() => {
+    const el = root.current!;
+    const q = gsap.utils.selector(el);
+    const steps = q(".r-step");
+    const readout = (p: number) => {
+      const k = Math.min(1, Math.max(0, (p - POUR_FROM) / (POUR_TO - POUR_FROM)));
+      if (ml.current) ml.current.textContent = String(Math.round(k * 30)).padStart(2, "0");
+      if (secs.current) secs.current.textContent = (Math.min(p / VIDEO_END, 1) * 17.7).toFixed(1).padStart(4, "0");
+    };
+
+    if (reduced) {
+      gsap.set(steps, { opacity: 1 });
+      readout(1);
+      return;
+    }
+
+    const mobile = window.matchMedia("(max-width: 1023px)").matches;
+    const dim = mobile ? 0 : 0.28;
+    gsap.set(steps, { opacity: dim });
+    gsap.set(q(".r-cta"), { opacity: 0, y: 16 });
+
+    let lastStep = -1;
+    const tl = gsap.timeline({
+      defaults: { ease: "none" },
+      scrollTrigger: {
+        trigger: el,
+        start: "top top",
+        end: "+=320%",
+        pin: true,
+        scrub: 0.5,
+        onUpdate: (self) => {
+          const p = self.progress;
+          draw.current(p);
+          readout(p);
+          const i = STEPS_AT.filter((t) => p >= t).length - 1;
+          if (i !== lastStep) {
+            if (i === 1 && self.direction > 0) play("pour");
+            if (i === 2 && self.direction > 0) play("cap");
+            lastStep = i;
+          }
+        },
+      },
+    });
+    STEPS_AT.forEach((at, i) => {
+      tl.to(steps[i], { opacity: 1, duration: 0.04 }, at);
+      const next = STEPS_AT[i + 1];
+      if (next !== undefined) tl.to(steps[i], { opacity: dim, duration: 0.04 }, next);
+    });
+    tl.to(q(".r-cta"), { opacity: 1, y: 0, duration: 0.06 }, 0.9);
+    tl.to({}, { duration: 0.0001 }, 1);
+
+    return () => {
+      tl.scrollTrigger?.kill();
+      tl.kill();
+    };
+  }, [reduced, draw]);
+
+  useEffect(() => {
+    if (reduced && ready) draw.current(VIDEO_END);
+  }, [reduced, ready, draw]);
+
+  const { ritual } = site;
+
+  return (
+    <section ref={root} id="ritual" className="relative h-[100svh] overflow-hidden bg-ink">
+      <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(ellipse 50% 60% at 62% 45%, #241a11 0%, var(--ink) 75%)" }} />
+      <div
+        aria-hidden
+        className="absolute left-1/2 top-0 h-[85%] w-[90vh] max-w-[140vw] -translate-x-1/2 lg:left-[62%]"
+        style={{ background: "linear-gradient(180deg, rgba(255,236,200,.13), transparent 75%)", clipPath: "polygon(44% 0, 56% 0, 84% 100%, 16% 100%)" }}
+      />
+      <div aria-hidden className="absolute inset-x-0 bottom-0 h-[20%]" style={{ background: "linear-gradient(180deg, rgba(220,192,138,.12) 0, transparent 2px), linear-gradient(180deg, #15100b, var(--ink) 80%)" }} />
+
+      {/* the pour */}
+      <div className="absolute bottom-[20%] left-1/2 aspect-[478/850] h-[52svh] -translate-x-1/2 translate-y-[6%] lg:left-[62%] lg:h-[76svh]">
+        <canvas
+          ref={canvas}
+          role="img"
+          aria-label="Condensed milk pouring from a shot bottle into a bottle of black coffee and settling at the bottom"
+          className={`h-full w-full transition-opacity duration-700 [-webkit-box-reflect:below_-2px_linear-gradient(transparent_80%,rgba(255,255,255,.12))] ${ready ? "opacity-100" : "opacity-0"}`}
+          style={{ filter: "drop-shadow(0 30px 40px rgba(0,0,0,.6)) contrast(1.06) saturate(1.1)" }}
+        />
+        {!ready && <p className="mono absolute inset-0 flex items-center justify-center text-muted">Loading the pour…</p>}
+
+        {/* live readouts beside the bottle */}
+        <div className="absolute -right-4 top-[18%] hidden translate-x-full space-y-5 xl:block">
+          <div className="brackets p-3">
+            <p className="mono text-muted">Milk in</p>
+            <p className="hud text-5xl font-extralight text-cream">
+              <span ref={ml}>00</span>
+              <span className="text-xl text-muted"> / 30 ml</span>
+            </p>
+          </div>
+          <div className="brackets p-3">
+            <p className="mono text-muted">Pour time</p>
+            <p className="hud text-5xl font-extralight text-cream">
+              <span ref={secs}>00.0</span>
+              <span className="text-xl text-muted"> s</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* steps */}
+      <div className="absolute inset-x-0 top-[64px] px-5 sm:px-8 lg:bottom-12 lg:top-20 lg:flex lg:w-[42%] lg:flex-col lg:justify-center lg:pl-12">
+        <p className="mono text-muted">
+          Instructions <span className="text-glow">{"// "}{ritual.kicker}</span>
+        </p>
+        <h2 className="hud mt-3 text-[clamp(2rem,4.6vw,4.4rem)] font-extralight leading-[0.95] text-cream">{ritual.title}</h2>
+        <ol className={`mt-6 lg:mt-10 lg:space-y-5 ${reduced ? "space-y-4" : "relative h-20 lg:h-auto"}`}>
+          {ritual.steps.map((s, i) => (
+            <li key={s.word} className={`r-step border-t border-line pt-3 ${reduced ? "" : "max-lg:absolute max-lg:inset-x-0 max-lg:top-0"}`}>
+              <div className="flex items-baseline gap-4">
+                <span className="font-mono text-xs text-glow">{String(i + 1).padStart(2, "0")}</span>
+                <span className="hud text-2xl text-cream lg:text-3xl">{s.word}</span>
+              </div>
+              <p className="ml-9 mt-1 text-[15px] text-muted">{s.text}</p>
+            </li>
+          ))}
+        </ol>
+        <div className="r-cta mt-6 hidden lg:block">
+          <Button href="#lineup">+ Order a bottle · ₹249</Button>
+        </div>
+      </div>
+    </section>
+  );
+}

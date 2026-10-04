@@ -1,0 +1,16 @@
+/**
+ * Product renders made by the 3D studio (lib/studio.ts) at start-up, shared
+ * with the line-up cards. Empty until the studio has loaded.
+ */
+let renders: Record<string, string> = {};
+const listeners = new Set<() => void>();
+
+export const setRenders = (r: Record<string, string>) => {
+  renders = r;
+  listeners.forEach((l) => l());
+};
+export const getRenders = () => renders;
+export const subscribeRenders = (cb: () => void) => {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+};

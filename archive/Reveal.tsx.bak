@@ -1,0 +1,140 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import { gsap } from "@/lib/gsap";
+import { useReducedMotion } from "@/lib/useReducedMotion";
+import { play } from "@/lib/sound";
+import { site } from "@/content/site";
+import { Label } from "./Label";
+import { useFrameSequence } from "@/lib/useFrameSequence";
+
+const SPIN_END = 0.75; // the bottle finishes its full turn at 75% of the scroll
+
+/**
+ * The reveal: the real bottle turns a full circle as you scroll (frames from
+ * assets-raw/spin.mp4) and sharpens into focus, the parody warning types
+ * itself out, then "0% ALCOHOL. 100% COFFEE." is stamped on the screen.
+ * The SVG label stands in until the frames have loaded.
+ */
+export function Reveal() {
+  const root = useRef<HTMLElement>(null);
+  const reduced = useReducedMotion();
+  const { canvas: spinCanvas, ready: spinReady, draw: drawSpin } = useFrameSequence("spin", { end: SPIN_END });
+
+  // reduced motion: a still of the bottle facing front
+  useEffect(() => {
+    if (reduced && spinReady) drawSpin.current(1);
+  }, [reduced, spinReady, drawSpin]);
+
+  useEffect(() => {
+    const el = root.current!;
+    const q = gsap.utils.selector(el);
+    const lines = q<HTMLElement>(".rv-line");
+    const stamp = q(".rv-stamp");
+    const full = site.warning.lines;
+
+    if (reduced) {
+      lines.forEach((l, i) => (l.textContent = full[i]));
+      gsap.set(stamp, { opacity: 1, scale: 1 });
+      return;
+    }
+
+    lines.forEach((l) => (l.textContent = ""));
+    gsap.set(stamp, { opacity: 0, scale: 3 });
+
+    let typed = false;
+    let timer = 0;
+    const type = () => {
+      if (typed) return;
+      typed = true;
+      let li = 0;
+      let ci = 0;
+      const step = () => {
+        if (li >= full.length) {
+          gsap
+            .timeline()
+            .to(stamp, { opacity: 1, scale: 1, duration: 0.28, ease: "power4.in", onComplete: () => play("stamp") })
+            .to(el, { x: 6, duration: 0.05, yoyo: true, repeat: 5 })
+            .set(el, { x: 0 });
+          return;
+        }
+        ci++;
+        lines[li].textContent = full[li].slice(0, ci);
+        if (ci >= full[li].length) {
+          li++;
+          ci = 0;
+          timer = window.setTimeout(step, 260);
+        } else timer = window.setTimeout(step, 22);
+      };
+      step();
+    };
+
+    const tl = gsap.timeline({
+      scrollTrigger: {
+        trigger: el,
+        start: "top top",
+        end: "+=180%",
+        pin: true,
+        scrub: 0.6,
+        onUpdate: (self) => {
+          drawSpin.current(self.progress);
+          if (self.progress > 0.8) type();
+        },
+      },
+    });
+    tl.fromTo(
+      q(".rv-label"),
+      { rotationY: -540, scale: 0.55, filter: "blur(14px)" },
+      { rotationY: 0, scale: 1, filter: "blur(0px)", ease: "power2.out", duration: 1 },
+    )
+      .fromTo(q(".rv-real"), { scale: 0.86, filter: "blur(10px) brightness(.6)" }, { scale: 1, filter: "blur(0px) brightness(1)", ease: "power2.out", duration: 0.75 }, 0)
+      .fromTo(q(".rv-copy"), { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.4 }, 0.55);
+
+    return () => {
+      window.clearTimeout(timer);
+      tl.scrollTrigger?.kill();
+      tl.kill();
+    };
+  }, [reduced, drawSpin]);
+
+  return (
+    <section ref={root} id="reveal" className="relative flex min-h-[100svh] items-center justify-center overflow-hidden px-6 py-20">
+      <div className="grid w-full max-w-6xl items-center gap-5 md:grid-cols-2 md:gap-10">
+        <div className="relative flex justify-center [perspective:1200px]">
+          {/* the real bottle, turning; edges fade into the dark so the room behind disappears */}
+          <div className="rv-real relative aspect-[478/850] h-[40svh] md:h-[74svh] [mask-image:radial-gradient(ellipse_50%_45%_at_50%_57%,black_50%,transparent_100%)]">
+            <canvas
+              ref={spinCanvas}
+              role="img"
+              aria-label="A Bean & Beyond bottle turning to show its label"
+              className={`absolute inset-0 h-full w-full transition-opacity duration-500 [filter:contrast(1.08)_saturate(1.1)] ${spinReady ? "opacity-100" : "opacity-0"}`}
+            />
+          </div>
+          {!spinReady && (
+            <div className="rv-label absolute inset-0 flex items-center justify-center [transform-style:preserve-3d]">
+              <Label className="w-[min(40vw,180px)] md:w-[min(32vw,340px)] drop-shadow-[0_30px_50px_rgba(0,0,0,.7)]" />
+            </div>
+          )}
+        </div>
+        <div className="rv-copy text-center md:text-left">
+          <p className="font-display text-xs tracking-[0.5em] text-gold">{site.reveal.kicker.toUpperCase()}</p>
+          <h2 className="mt-3 font-display text-4xl text-label sm:text-6xl">{site.reveal.heading}</h2>
+          <div className="mt-4 border-2 border-brick/80 p-4 text-left font-mono text-xs sm:p-5 md:mt-6 leading-relaxed text-label/85 sm:text-base">
+            <p className="mb-2 font-sans text-xs font-bold tracking-[0.2em] text-[#c9654a]">{site.warning.heading}</p>
+            {site.warning.lines.map((l) => (
+              <p key={l} className="min-h-[1.6em]">
+                <span className="rv-line">{l}</span>
+              </p>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <p className="rv-stamp rotate-[-8deg] border-4 border-[#c9654a] bg-espresso/70 px-6 py-3 text-center font-display text-3xl leading-tight tracking-[0.12em] text-[#e07a5c] shadow-[0_0_0_6px_rgba(20,13,9,.6)] sm:text-6xl">
+          {site.brand.alcoholLine}
+        </p>
+      </div>
+    </section>
+  );
+}

@@ -1,0 +1,59 @@
+/** Coffee beans and ice cubes that drift in depth layers. Positions are fixed so server and browser agree. */
+
+export type Floater = { kind: "bean" | "ice"; left: number; top: number; size: number; depth: 1 | 2 | 3; dur: number; delay: number; r: number };
+
+export const HERO_FLOATERS: Floater[] = [
+  { kind: "bean", left: 8, top: 18, size: 34, depth: 3, dur: 7, delay: 0, r: 20 },
+  { kind: "ice", left: 16, top: 62, size: 54, depth: 2, dur: 9, delay: 1, r: -10 },
+  { kind: "bean", left: 24, top: 36, size: 18, depth: 1, dur: 8, delay: 2, r: 60 },
+  { kind: "bean", left: 30, top: 78, size: 26, depth: 2, dur: 10, delay: 0.5, r: -40 },
+  { kind: "ice", left: 72, top: 20, size: 44, depth: 1, dur: 11, delay: 1.5, r: 12 },
+  { kind: "bean", left: 78, top: 48, size: 38, depth: 3, dur: 7.5, delay: 0.8, r: -25 },
+  { kind: "bean", left: 88, top: 72, size: 22, depth: 1, dur: 9.5, delay: 2.4, r: 80 },
+  { kind: "ice", left: 84, top: 34, size: 62, depth: 3, dur: 12, delay: 0.2, r: 25 },
+  { kind: "bean", left: 62, top: 84, size: 20, depth: 2, dur: 8.5, delay: 1.2, r: 10 },
+  { kind: "bean", left: 44, top: 12, size: 16, depth: 1, dur: 10, delay: 3, r: -60 },
+  { kind: "ice", left: 4, top: 86, size: 40, depth: 1, dur: 10.5, delay: 2, r: -20 },
+  { kind: "bean", left: 94, top: 10, size: 28, depth: 2, dur: 9, delay: 1.7, r: 35 },
+];
+
+export function FloaterShape({ kind, size }: { kind: Floater["kind"]; size: number }) {
+  if (kind === "bean") {
+    // roasted bean: lit from the top left, oily sheen, deep centre crease
+    return (
+      <svg width={size} height={size * 1.4} viewBox="-10 -14 20 28" aria-hidden style={{ filter: "drop-shadow(0 4px 5px rgba(0,0,0,.55))" }}>
+        <defs>
+          <radialGradient id="bean-shade" cx="0.32" cy="0.28" r="0.85">
+            <stop offset="0" stopColor="#9a6236" />
+            <stop offset="0.35" stopColor="#5e3318" />
+            <stop offset="0.75" stopColor="#2c160a" />
+            <stop offset="1" stopColor="#140904" />
+          </radialGradient>
+        </defs>
+        <ellipse rx="9" ry="13" fill="url(#bean-shade)" />
+        <path d="M0.6 -12 C-4.5 -4 4.5 4 0.6 12" fill="none" stroke="#0d0603" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M1.8 -11 C-2.8 -4 5.6 4 1.8 11" fill="none" stroke="#b07a4c" strokeOpacity="0.45" strokeWidth="0.5" />
+        <ellipse cx="-4" cy="-6" rx="1.8" ry="3.6" fill="#fff" opacity="0.18" transform="rotate(18 -4 -6)" />
+      </svg>
+    );
+  }
+  // ice cube: frosted edges, clear core, a bright corner and a hairline crack
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: size,
+        height: size,
+        borderRadius: size * 0.16,
+        background:
+          "radial-gradient(circle at 70% 75%, rgba(170,200,215,.18), transparent 55%), linear-gradient(140deg, rgba(255,255,255,.5) 0%, rgba(225,238,245,.16) 28%, rgba(190,212,225,.06) 58%, rgba(255,255,255,.28) 100%)",
+        border: "1px solid rgba(255,255,255,.45)",
+        boxShadow:
+          "inset 3px 3px 6px rgba(255,255,255,.55), inset -5px -7px 12px rgba(110,140,160,.3), inset 0 0 0 3px rgba(255,255,255,.07), 0 10px 22px rgba(0,0,0,.45)",
+      }}
+    >
+      <span style={{ position: "absolute", left: "12%", top: "10%", width: "34%", height: "18%", borderRadius: "40%", background: "rgba(255,255,255,.55)", filter: "blur(2px)" }} />
+      <span style={{ position: "absolute", left: "30%", top: "38%", width: "48%", height: 1, background: "rgba(255,255,255,.4)", transform: "rotate(-28deg)" }} />
+    </div>
+  );
+}

@@ -1,0 +1,68 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
+import { getMuted, setMuted, subscribeSound, play } from "@/lib/sound";
+import { Magnetic } from "./Magnetic";
+import { site } from "@/content/site";
+
+/** Sound toggle styled like a bar tap: lever pulled forward = sound on. */
+function SoundToggle() {
+  const muted = useSyncExternalStore(subscribeSound, getMuted, () => true);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setMuted(!muted);
+        if (muted) play("pour");
+      }}
+      aria-pressed={!muted}
+      aria-label={muted ? "Turn sound on" : "Turn sound off"}
+      className="flex items-center gap-2 rounded-full border border-gold/50 px-3 py-1.5 text-xs tracking-widest text-gold transition hover:border-gold"
+    >
+      <svg width="20" height="26" viewBox="0 0 20 26" aria-hidden>
+        <g style={{ transformOrigin: "10px 12px", transform: `rotate(${muted ? -25 : 20}deg)`, transition: "transform .3s" }}>
+          <rect x="7.5" y="0" width="5" height="11" rx="2" fill="currentColor" />
+        </g>
+        <rect x="3" y="11" width="14" height="5" rx="1.5" fill="currentColor" />
+        <path d="M8 16 h4 v4 h-4z" fill="currentColor" />
+        {!muted && <circle cx="10" cy="23.5" r="1.6" fill="#f7edd3" />}
+      </svg>
+      {muted ? "SOUND OFF" : "SOUND ON"}
+    </button>
+  );
+}
+
+export function Header() {
+  return (
+    <>
+      <header className="pointer-events-none fixed inset-x-0 top-0 z-50 flex items-center justify-between px-4 py-4 sm:px-8">
+        <a href="#top" className="pointer-events-auto font-display text-lg tracking-[0.25em] text-label">
+          B<span className="text-accent">&amp;</span>B
+        </a>
+        <nav className="pointer-events-auto hidden gap-7 text-sm tracking-wider text-label/80 md:flex" aria-label="Sections">
+          <a href="#pour" className="hover:text-accent">The pour</a>
+          <a href="#flavours" className="hover:text-accent">Flavours</a>
+          <a href="#find-us" className="hover:text-accent">Find us</a>
+          <a href={site.contact.instagramUrl} target="_blank" rel="noopener noreferrer" className="hover:text-accent">Instagram</a>
+        </nav>
+        <div className="pointer-events-auto">
+          <SoundToggle />
+        </div>
+      </header>
+
+      {/* persistent order button */}
+      <div className="fixed bottom-5 right-5 z-50">
+        <Magnetic>
+          <a
+            href="#flavours"
+            onClick={() => play("clink")}
+            className="flex items-center gap-2 rounded-full bg-accent px-6 py-3.5 font-semibold text-espresso shadow-[0_10px_30px_rgba(0,0,0,.5)] transition-colors hover:bg-milk"
+          >
+            Order now
+            <span aria-hidden>→</span>
+          </a>
+        </Magnetic>
+      </div>
+    </>
+  );
+}

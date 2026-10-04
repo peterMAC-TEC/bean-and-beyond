@@ -1,0 +1,57 @@
+import Image from "next/image";
+import { site } from "@/content/site";
+import { TextReveal } from "./TextReveal";
+import { Button } from "./Button";
+
+// tile layout on wide screens: the first photo is the big one
+const SPANS = ["md:col-span-2 md:row-span-2", "", "", "md:col-span-2"];
+
+/** Real photos and stills, linking to Instagram. Edit the list in content/site.ts. */
+export function Gallery() {
+  const { spotted, gallery, contact } = site;
+  return (
+    <section id="spotted" className="bg-ink px-5 py-28 sm:px-8 lg:px-12">
+      <div className="mx-auto max-w-7xl">
+        <div className="flex flex-col justify-between gap-6 border-b border-line pb-6 sm:flex-row sm:items-end">
+          <div>
+            <p className="mono text-muted">
+              Instagram <span className="text-glow">{"// "}{spotted.kicker}</span>
+            </p>
+            <TextReveal text={spotted.title} className="hud mt-3 text-[clamp(2.4rem,5vw,4.8rem)] font-extralight leading-none text-cream" />
+          </div>
+          <Button href={contact.instagramUrl} external variant="outline">
+            Follow @{contact.instagram} ↗
+          </Button>
+        </div>
+
+        <div className="mt-10 grid auto-rows-[220px] grid-cols-2 gap-3 sm:auto-rows-[260px] md:grid-cols-4 md:gap-4">
+          {gallery.map((g, i) => (
+            <a
+              key={g.src}
+              href={contact.instagramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`${g.alt} (opens Instagram)`}
+              className={`group relative overflow-hidden rounded-lg border border-line ${SPANS[i] ?? ""}`}
+            >
+              <Image
+                src={g.src}
+                alt={g.alt}
+                fill
+                sizes="(min-width: 768px) 50vw, 50vw"
+                className="object-cover transition duration-700 ease-out [filter:brightness(.82)_contrast(1.08)] group-hover:scale-105 group-hover:[filter:brightness(1)_contrast(1.08)]"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-ink/90 via-transparent to-transparent" />
+              <p className="mono absolute left-3 top-3 rounded-sm bg-ink/60 px-2 py-1 text-muted backdrop-blur">
+                IMG_{String(i + 1).padStart(3, "0")}
+              </p>
+              <p className="hud absolute inset-x-3 bottom-3 translate-y-2 text-lg text-cream opacity-0 transition duration-500 group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100">
+                {g.alt}
+              </p>
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}

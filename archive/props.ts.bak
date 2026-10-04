@@ -1,0 +1,46 @@
+/** Geometry for the props on the bar: roasted coffee beans and ice cubes. */
+import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+
+/**
+ * A roasted coffee bean, ~1 unit long: a domed back, a flatter face and the
+ * S-shaped centre crease running down the face.
+ */
+export function beanGeometry() {
+  const g = new THREE.SphereGeometry(0.5, 48, 32);
+  const p = g.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    // proportions: long (z), a bit narrower (x), shallow (y)
+    let x = v.x * 0.74;
+    let y = v.y * 0.62;
+    const z = v.z * 1.0;
+    // flatter face on top, rounder dome underneath
+    if (y > 0) y *= 0.55;
+    // the crease: an S-curve along the face, opening up at the tips
+    const centre = 0.07 * Math.sin(z * 5.2);
+    const d = (x - centre) / 0.05;
+    const along = 1 - Math.pow(Math.abs(z) / 0.5, 6);
+    if (y > -0.02) y -= 0.075 * Math.exp(-d * d) * Math.max(0, along);
+    // slight asymmetry so beans don't look cloned
+    x *= 1 + 0.04 * Math.sin(z * 9);
+    p.setXYZ(i, x, y, z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** An ice cube: rounded edges, slightly irregular faces. */
+export function iceGeometry() {
+  const g = new RoundedBoxGeometry(1, 1, 1, 6, 0.16);
+  const p = g.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const n = 1 + 0.035 * Math.sin(v.x * 7 + v.y * 3) * Math.cos(v.z * 6 - v.y * 4);
+    p.setXYZ(i, v.x * n, v.y * n * 0.92, v.z * n);
+  }
+  g.computeVertexNormals();
+  return g;
+}
