@@ -81,6 +81,8 @@ export function BeanStory() {
       io.observe(el);
       update();
       setReady(true);
+      // dev only: lets automated snapshots jump to an exact moment
+      if (process.env.NODE_ENV !== "production") Object.assign(window, { __beanScene: scene });
     };
     // load once the section is getting close
     const near = new IntersectionObserver(

@@ -17,11 +17,12 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { labelMaps } from "./textures";
+import { labelMaps, dropletNormalMap } from "./textures";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 
 export type BeanScene = {
-  setProgress: (p: number) => void;
+  /** immediate skips the smoothing (used by automated snapshots) */
+  setProgress: (p: number, immediate?: boolean) => void;
   setRunning: (on: boolean) => void;
   dispose: () => void;
 };
@@ -91,6 +92,25 @@ function wrinkleNormal(size = 1024) {
   return t;
 }
 
+/** an opaque soft panel: warm in the middle, fading to the scene background at the edges */
+function panelTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#050403";
+  g.fillRect(0, 0, 256, 256);
+  const grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grd.addColorStop(0, "#8a5c2c");
+  grd.addColorStop(0.22, "#4a2e16");
+  grd.addColorStop(0.6, "#120a05");
+  grd.addColorStop(1, "#050403");
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 /** a soft round glow */
 function softDisc(colour: string) {
   const c = document.createElement("canvas");
@@ -107,35 +127,82 @@ function softDisc(colour: string) {
 }
 
 // ------------------------------------------------------------ geometry ----
-/** A macro-detail roasted bean: domed back, flat face, S-shaped crease with chaff. */
+/** smooth 3D value noise in -1..1 (for organic variation that never tiles) */
+function noise3(x: number, y: number, z: number) {
+  const h = (i: number, j: number, k: number) => {
+    const n = Math.sin(i * 127.1 + j * 311.7 + k * 74.7) * 43758.5453;
+    return (n - Math.floor(n)) * 2 - 1;
+  };
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const f = (t: number) => t * t * (3 - 2 * t);
+  const u = f(x - xi), v = f(y - yi), w = f(z - zi);
+  const l = (a: number, b: number, t: number) => a + (b - a) * t;
+  return l(
+    l(l(h(xi, yi, zi), h(xi + 1, yi, zi), u), l(h(xi, yi + 1, zi), h(xi + 1, yi + 1, zi), u), v),
+    l(l(h(xi, yi, zi + 1), h(xi + 1, yi, zi + 1), u), l(h(xi, yi + 1, zi + 1), h(xi + 1, yi + 1, zi + 1), u), v),
+    w,
+  );
+}
+const fbm3 = (x: number, y: number, z: number, oct = 4) => {
+  let a = 0.5, f = 1, sum = 0;
+  for (let o = 0; o < oct; o++) {
+    sum += a * noise3(x * f, y * f, z * f);
+    a *= 0.5;
+    f *= 2.03;
+  }
+  return sum;
+};
+
+/**
+ * A macro-detail roasted bean: domed back, flat face, a deep S-shaped crease
+ * with pale chaff caught in it, a slightly lumpy surface, uneven roast colour
+ * and fine dark specks — modelled on real dark-roast beans.
+ */
 function beanGeometry(detail = 1) {
   const g = new THREE.SphereGeometry(0.5, Math.round(192 * detail), Math.round(144 * detail));
   const p = g.attributes.position;
   const colors = new Float32Array(p.count * 3);
   const v = new THREE.Vector3();
   const base = new THREE.Color();
+  const chaff = new THREE.Color(0x6e5232);
+  const lip = new THREE.Color();
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
     let x = v.x * 0.74;
     let y = v.y * 0.6;
-    const z = v.z;
+    let z = v.z;
     if (y > 0) y *= 0.55;
-    const centre = 0.065 * Math.sin(z * 5.4);
-    const d = (x - centre) / 0.04;
-    const along = Math.max(0, 1 - Math.pow(Math.abs(z) / 0.5, 6));
+    // the crease: an S-curve, deeper in the middle, closing at the tips
+    const centre = 0.07 * Math.sin(z * 5.2) + 0.012 * Math.sin(z * 13);
+    const d = (x - centre) / 0.036;
+    const along = Math.max(0, 1 - Math.pow(Math.abs(z) / 0.5, 5));
     const crease = Math.exp(-d * d) * along;
     if (y > -0.02) {
-      y -= 0.085 * crease;
-      // the lips either side of the crease swell slightly
-      y += 0.012 * Math.exp(-Math.pow(Math.abs(d) - 1.7, 2)) * along;
+      y -= 0.1 * crease;
+      // the lips either side of the crease swell and roll over slightly
+      y += 0.016 * Math.exp(-Math.pow(Math.abs(d) - 1.6, 2)) * along;
     }
-    x *= 1 + 0.035 * Math.sin(z * 9 + 1);
+    // asymmetry and an organic, slightly lumpy surface
+    x *= 1 + 0.04 * Math.sin(z * 8.5 + 1);
+    const lump = fbm3(v.x * 6, v.y * 6, v.z * 6) * 0.018 + fbm3(v.x * 22, v.y * 22, v.z * 22, 2) * 0.004;
+    x *= 1 + lump;
+    y *= 1 + lump;
+    z *= 1 + lump * 0.5;
     p.setXYZ(i, x, y, z);
-    // colour: dark roast with mottling; pale chaff caught in the crease
-    // gentle, irregular mottling (layered waves at unrelated angles, so no plaid grid)
-    const mott = 0.5 + 0.5 * (0.5 * Math.sin(z * 11.3 + 1.7) + 0.3 * Math.sin(x * 15.1 - z * 6.7 + 0.4) + 0.2 * Math.sin((x * 0.7 + z) * 23.9 + 2.1));
-    base.setHSL(0.05 + mott * 0.012, 0.5, 0.028 + mott * 0.022);
-    if (y > -0.05 && crease > 0.35) base.lerp(new THREE.Color(0x6e4a28), Math.min(1, (crease - 0.35) * 1.8) * (0.55 + 0.45 * Math.sin(z * 60)));
+
+    // colour: uneven dark roast (darker at the tips), fine specks, worn lighter lips
+    const n = fbm3(v.x * 4 + 3, v.y * 4, v.z * 4 - 2);
+    const tip = Math.pow(Math.abs(v.z) * 2, 3);
+    base.setHSL(0.045 + n * 0.008, 0.6, Math.max(0.01, 0.026 + n * 0.012 - tip * 0.01));
+    const speck = noise3(v.x * 90, v.y * 90, v.z * 90);
+    if (speck > 0.8) base.multiplyScalar(0.7);
+    if (y > -0.04) {
+      lip.copy(base).lerp(new THREE.Color(0x3a1d0c), 0.35);
+      base.lerp(lip, Math.exp(-Math.pow(Math.abs(d) - 1.6, 2)) * along * 0.6);
+      // chaff in the crease, broken up so it looks like real silverskin
+      const torn = 0.5 + 0.5 * fbm3(v.z * 14, v.x * 30, 1.3);
+      if (crease > 0.3) base.lerp(chaff, Math.min(1, (crease - 0.3) * 1.7) * torn);
+    }
     colors.set([base.r, base.g, base.b], i * 3);
   }
   g.setAttribute("color", new THREE.BufferAttribute(colors, 3));
@@ -201,7 +268,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   const key = new THREE.SpotLight(0xffe2c0, 32, 20, 0.6, 0.6, 1.2);
   key.position.set(-2.5, 3.5, 3);
   scene.add(key, key.target);
-  const rim = new THREE.SpotLight(0xffbd7a, 110, 20, 0.5, 0.5, 1.2);
+  const rim = new THREE.SpotLight(0xffbd7a, 50, 20, 0.5, 0.75, 1.2);
   rim.position.set(2.2, 1.2, -3.2);
   scene.add(rim, rim.target);
   const kicker = new THREE.PointLight(0xbcd6ff, 6, 10);
@@ -231,14 +298,16 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping;
   const beanMat = new THREE.MeshPhysicalMaterial({
     vertexColors: true,
-    roughness: 0.5,
+    roughness: 0.64,
     roughnessMap: roughTex,
     normalMap: wrinkles,
-    normalScale: new THREE.Vector2(0.3, 0.3),
-    clearcoat: 0.45,
-    clearcoatRoughness: 0.35,
-    sheen: 0.25,
-    sheenColor: new THREE.Color(0xa0602a),
+    normalScale: new THREE.Vector2(0.5, 0.5),
+    clearcoat: 0.12,
+    clearcoatRoughness: 0.55,
+    envMapIntensity: 0.6,
+    sheen: 0.12,
+    sheenRoughness: 0.7,
+    sheenColor: new THREE.Color(0x4a2410),
   });
   const bean = new THREE.Mesh(beanGeometry(mobile ? 0.6 : 1), beanMat);
   const beanPivot = new THREE.Group();
@@ -367,38 +436,100 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   const BOTTLE_Y = -8.6;
   const BOTTLE_S = 0.42;
   const MOUTH = BOTTLE_Y + 4.06;
-  const streamMat = new THREE.MeshPhysicalMaterial({ color: 0x1c0c05, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.03, normalMap: wrinkles, normalScale: new THREE.Vector2(0.15, 0.15), sheen: 0.4, sheenColor: new THREE.Color(0x8a4a18) });
-  const streamGeo = new THREE.CylinderGeometry(0.075, 0.06, 1, 32, 40, true);
+  // a glossy coffee stream that narrows as it falls (gravity), with an amber
+  // edge where the light shines through the thin liquid
+  const streamMat = new THREE.MeshPhysicalMaterial({ color: 0x160904, roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.03, sheen: 0.4, sheenColor: new THREE.Color(0x8a4a18) });
+  const streamGeo = new THREE.CylinderGeometry(1, 1, 1, 40, 120, true);
   streamGeo.translate(0, -0.5, 0);
   const streamTime = { value: 0 };
+  const edgeGlow = { value: new THREE.Color(0x6a2c0a) };
   streamMat.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = streamTime;
+    sh.uniforms.uEdge = edgeGlow;
     sh.vertexShader = "uniform float uTime;\n" + sh.vertexShader.replace(
       "#include <begin_vertex>",
       `#include <begin_vertex>
-      float rip = sin(position.y * 90.0 + uTime * 24.0) * 0.035 + sin(position.y * 260.0 - uTime * 33.0) * 0.015;
-      transformed.xz *= 1.0 + rip;
-      transformed.x += sin(position.y * 12.0 + uTime * 3.0) * 0.003;`,
+      float k = -position.y;                         // 0 at the top, 1 at the bottom
+      float radius = mix(0.07, 0.032, sqrt(k));      // thins as it speeds up
+      float rip = sin(k * 70.0 - uTime * 26.0) * 0.06 + sin(k * 190.0 - uTime * 41.0) * 0.025;
+      transformed.xz *= radius * (1.0 + rip * k);
+      transformed.x += sin(k * 6.0 + uTime * 2.2) * 0.006 * k;`,
+    );
+    sh.fragmentShader = "uniform vec3 uEdge;\n" + sh.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      `#include <emissivemap_fragment>
+      totalEmissiveRadiance += uEdge * pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.5);`,
     );
   };
   const stream = new THREE.Mesh(streamGeo, streamMat);
   stream.position.y = STREAM_TOP;
   scene.add(stream);
+  // a few drops that break away from the stream
+  const LOOSE = mobile ? 10 : 22;
+  const loose = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 14, 10), streamMat, LOOSE);
+  loose.frustumCulled = false;
+  scene.add(loose);
+  const looseP = Array.from({ length: LOOSE }, () => ({ phase: Math.random(), off: (Math.random() - 0.5) * 0.12, z: (Math.random() - 0.5) * 0.08, s: 0.008 + Math.random() * 0.014 }));
 
   const bottle = new THREE.Group();
   bottle.position.y = BOTTLE_Y;
   scene.add(bottle);
   const glass = new THREE.Mesh(
     bottleGeometry(BOTTLE, BOTTLE_S * 2.05, 0.56),
-    new THREE.MeshPhysicalMaterial({ color: 0xd6f3dc, transmission: 1, roughness: 0.09, thickness: 0.3, ior: 1.5, attenuationColor: new THREE.Color(0x12863a), attenuationDistance: 0.7, clearcoat: 0.6, clearcoatRoughness: 0.18, specularIntensity: 0.55, envMapIntensity: 0.75 }),
+    new THREE.MeshPhysicalMaterial({ color: 0xe6f8ea, transmission: 1, roughness: 0.09, thickness: 0.3, ior: 1.5, attenuationColor: new THREE.Color(0x1a8f42), attenuationDistance: 1.6, clearcoat: 0.6, clearcoatRoughness: 0.18, specularIntensity: 0.55, envMapIntensity: 0.75 }),
   );
   bottle.add(glass);
+  {
+    const drops = dropletNormalMap();
+    drops.repeat.set(2, 3);
+    const gm = glass.material as THREE.MeshPhysicalMaterial;
+    gm.normalMap = drops;
+    gm.normalScale = new THREE.Vector2(0.22, 0.22);
+    gm.clearcoatNormalMap = drops;
+    gm.clearcoatNormalScale = new THREE.Vector2(0.45, 0.45);
+  }
   const fillPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), BOTTLE_Y);
   const inside = new THREE.Mesh(
     bottleGeometry(BOTTLE.map(([r, y]) => [r * 0.92, Math.max(0.08, Math.min(y, 3.9))] as [number, number]), BOTTLE_S * 2.05, 0.56),
-    new THREE.MeshPhysicalMaterial({ color: 0x160a04, roughness: 0.22, clearcoat: 0.5, clearcoatRoughness: 0.25, clippingPlanes: [fillPlane] }),
+    new THREE.MeshPhysicalMaterial({ color: 0x1d0d05, roughness: 0.2, clearcoat: 0.5, clearcoatRoughness: 0.25, emissive: new THREE.Color(0x3a1706), emissiveIntensity: 0.35, clippingPlanes: [fillPlane] }),
   );
   bottle.add(inside);
+
+  // the coffee's surface, rising as the bottle fills: it ripples where the
+  // stream lands and gathers a ring of crema-coloured foam
+  const INNER = BOTTLE.map(([r, y]) => [r * 0.92 * BOTTLE_S * 2.05, y] as [number, number]);
+  const innerR = (y: number) => {
+    for (let i = 1; i < INNER.length; i++) if (INNER[i][1] >= y) {
+      const [r0, y0] = INNER[i - 1];
+      const [r1, y1] = INNER[i];
+      return r0 + ((r1 - r0) * (y - y0)) / Math.max(1e-4, y1 - y0);
+    }
+    return INNER[INNER.length - 1][0];
+  };
+  const flatAt = (y: number) => {
+    const t = Math.min(1, Math.max(0, (y - 2.7) / 0.75));
+    return 0.56 + 0.44 * t * t * (3 - 2 * t);
+  };
+  const rippleTime = { value: 0 };
+  const rippleAmp = { value: 0 };
+  const surfaceMat = new THREE.MeshPhysicalMaterial({ color: 0x1d0d05, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05, emissive: new THREE.Color(0x2a1105), emissiveIntensity: 0.3, flatShading: true });
+  surfaceMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = rippleTime;
+    sh.uniforms.uAmp = rippleAmp;
+    sh.vertexShader = "uniform float uTime; uniform float uAmp;\n" + sh.vertexShader.replace(
+      "#include <begin_vertex>",
+      `#include <begin_vertex>
+      float rr = length(position.xy);
+      transformed.z += uAmp * sin(rr * 46.0 - uTime * 14.0) * exp(-rr * 2.2) * 0.02;`,
+    );
+  };
+  const surface = new THREE.Mesh(new THREE.RingGeometry(0.0001, 1, 96, 28), surfaceMat);
+  surface.rotation.x = -Math.PI / 2;
+  bottle.add(surface);
+  const FOAM = mobile ? 70 : 160;
+  const foam = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshPhysicalMaterial({ color: 0x7a4a26, roughness: 0.25, clearcoat: 0.8, transparent: true, opacity: 0.9 }), FOAM);
+  bottle.add(foam);
+  const foamP = Array.from({ length: FOAM }, () => ({ a: Math.random() * Math.PI * 2, k: Math.random() < 0.7 ? 0.82 + Math.random() * 0.16 : Math.random() * 0.8, s: 0.008 + Math.pow(Math.random(), 2) * 0.03 }));
   // the gold-foil label, wrapped round the front
   void labelMaps().then((lab) => {
     const R = BOTTLE_S * 2.05 * 1.006;
@@ -426,13 +557,21 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   };
   strip(2.3, 0xffd2a0, 5);
   strip(-2.3, 0xffe9cc, 3.5);
+  const front = new THREE.RectAreaLight(0xffe6c8, 0.9, 4, 5);
+  front.position.set(-2.2, BOTTLE_Y + 2.6, 6);
+  front.lookAt(0, BOTTLE_Y + 1.6, 0);
+  scene.add(front);
   scene.add(bottleKey, bottleKey.target);
-  const backGlow = new THREE.Mesh(
-    new THREE.CircleGeometry(4, 48),
-    new THREE.MeshBasicMaterial({ map: softDisc("#3a2412"), transparent: true, depthWrite: false, fog: false }),
+  // a soft light panel right behind the bottle: the empty glass glows green
+  // through it, so you can watch the dark coffee rise as it fills
+  const backPanel = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    // solid, not transparent: glass only refracts solid objects behind it
+    new THREE.MeshBasicMaterial({ map: panelTexture(), fog: false }),
   );
-  backGlow.position.set(0, BOTTLE_Y + 2.2, -5);
-  scene.add(backGlow);
+  backPanel.scale.set(13, 13, 1); // wide enough that its edges are always off-screen
+  backPanel.position.set(0, BOTTLE_Y + 2.1, -2.6);
+  scene.add(backPanel);
   // a dark plinth the bottle stands on, with a soft contact shadow, so it is grounded rather than floating
   const plinth = new THREE.Mesh(
     new THREE.CircleGeometry(3.2, 64),
@@ -441,13 +580,6 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   plinth.rotation.x = -Math.PI / 2;
   plinth.position.set(0, BOTTLE_Y + 0.005, 0);
   scene.add(plinth);
-  const rimLine = new THREE.Mesh(
-    new THREE.RingGeometry(2.2, 2.215, 128),
-    new THREE.MeshBasicMaterial({ color: 0x5a3a1e, transparent: true, opacity: 0.35, depthWrite: false }),
-  );
-  rimLine.rotation.x = -Math.PI / 2;
-  rimLine.position.set(0, BOTTLE_Y + 0.006, 0);
-  scene.add(rimLine);
   // brushed, satin aluminium: reads as metal without a blinding highlight
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.46 * BOTTLE_S * 2.05, 0.46 * BOTTLE_S * 2.05, 0.5, 64), new THREE.MeshStandardMaterial({ color: 0xc9ccd0, metalness: 1, roughness: 0.48, envMapIntensity: 0.7 }));
   scene.add(cap);
@@ -552,16 +684,17 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     // ---- camera: macro on the bean, pull back for the burst, down to the bottle
     const cz = lerp(lerp(2.9, 2.2, smooth(0.08, 0.24, P)), 7.5, smooth(EXPLODE, 0.4, P));
     const cy = lerp(0.05, -0.3, smooth(0.4, 0.6, P));
-    const down = smooth(0.74, 0.9, P);
-    camera.position.set(Math.sin(time * 0.15) * 0.12 * (1 - down) + ndc.x * 0.08, lerp(cy, BOTTLE_Y + 3.4, down), lerp(cz, camera.aspect < 0.8 ? 11.2 : 10.5, down));
-    look.set(0, lerp(0, BOTTLE_Y + 2.3, down), 0);
+    const down = smooth(0.7, 0.84, P); // arrive at the bottle before the coffee reaches it
+    camera.position.set(Math.sin(time * 0.15) * 0.12 * (1 - down) + ndc.x * 0.08, lerp(cy, BOTTLE_Y + 2.7, down), lerp(cz, camera.aspect < 0.8 ? 10.6 : 9.6, down));
+    look.set(0, lerp(0, BOTTLE_Y + 2.15, down), 0);
     camera.lookAt(look);
     key.intensity = 32 * (1 - down);
-    rim.intensity = 110 * (1 - down);
+    rim.intensity = 50 * (1 - down);
     kicker.intensity = 6 * (1 - down);
     cursorLight.intensity = (mobile ? 0 : 10) * (1 - down);
     renderer.toneMappingExposure = lerp(1.1, 0.92, down);
     if (bloom) bloom.strength = lerp(0.24, 0.05, down);
+    backPanel.visible = down > 0.02;
     focusTarget.set(0, lerp(0, lerp(0.2, STREAM_TOP - 0.3, sink), smooth(EXPLODE, 0.45, P)), 0);
     if (down > 0) focusTarget.lerp(tmpV.set(0, BOTTLE_Y + 2, 0.6), down);
     const focusDist = camera.position.distanceTo(focusTarget);
@@ -577,7 +710,8 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     }
     const crush = smooth(0.13, EXPLODE, P);
     beanPivot.visible = P < EXPLODE + 0.004;
-    beanPivot.rotation.set(drag.rx + Math.sin(time * 0.4) * 0.15, drag.ry + time * 0.25 * (1 - crush), 0);
+    // a gentle sway that keeps the crease (the most recognisable side) facing us
+    beanPivot.rotation.set(drag.rx + Math.sin(time * 0.4) * 0.12, drag.ry + Math.sin(time * 0.32) * 0.55 * (1 - crush), 0);
     const shudder = crush > 0.6 ? (Math.random() - 0.5) * 0.03 * crush : 0;
     beanPivot.scale.set(1 + crush * 0.16 + shudder, 1 - crush * 0.34, 1 + crush * 0.1);
     beanPivot.position.set(shudder, shudder, 0);
@@ -636,14 +770,55 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
       drops.instanceColor!.needsUpdate = true;
     }
 
-    // stream grows down into the bottle, the bottle fills, the cap twists on
-    const pour = smooth(0.7, 0.86, P);
-    const len = (STREAM_TOP - MOUTH + 0.2) * pour;
-    stream.visible = pour > 0.001 && P < 0.965;
-    stream.scale.set(1 + Math.sin(time * 20) * 0.03, Math.max(len, 0.001), 1);
+    // the pour: the stream reaches down to the coffee's surface, the bottle
+    // fills, then the stream's tail falls in and it's gone
+    const FILL_TOP = 3.05;
+    const fill = smooth(0.78, 0.92, P);
+    const level = 0.1 + fill * (FILL_TOP - 0.1); // bottle-local height of the coffee
+    const surfaceY = BOTTLE_Y + level;
+    const grow = smooth(0.7, 0.8, P);
+    const tail = smooth(0.9, 0.95, P);
+    const topY = lerp(STREAM_TOP, surfaceY, tail);
+    const bottomY = lerp(STREAM_TOP, surfaceY, grow);
+    const streamLen = Math.max(0.0001, topY - bottomY);
+    stream.visible = grow > 0.001 && tail < 0.999;
+    stream.position.y = topY;
+    stream.scale.set(1, streamLen, 1);
     streamTime.value = time;
-    const fill = smooth(0.8, 0.93, P);
-    fillPlane.constant = BOTTLE_Y + 0.05 + fill * 2.6;
+    const pouring = grow > 0.98 && tail < 0.98;
+    loose.visible = pouring;
+    if (pouring) {
+      for (let i = 0; i < LOOSE; i++) {
+        const lp = looseP[i];
+        const ph = (time * 0.9 + lp.phase) % 1;
+        const y = lerp(STREAM_TOP - 0.4, surfaceY, ph * ph);
+        m.compose(pos.set(lp.off * ph, y, lp.z), q.identity(), sc.set(lp.s, lp.s * 1.6, lp.s));
+        loose.setMatrixAt(i, m);
+      }
+      loose.instanceMatrix.needsUpdate = true;
+    }
+    fillPlane.constant = surfaceY;
+    surface.visible = fill > 0.002;
+    surface.position.y = level;
+    const rIn = innerR(level) * 0.99;
+    surface.scale.set(rIn, rIn * flatAt(level), 1);
+    rippleTime.value = time;
+    rippleAmp.value = lerp(rippleAmp.value, pouring ? 1 : 0, Math.min(1, dt * 3));
+    foam.visible = fill > 0.05;
+    if (foam.visible) {
+      const fz = flatAt(level);
+      for (let i = 0; i < FOAM; i++) {
+        const f = foamP[i];
+        const r = rIn * f.k;
+        const swirl = f.a + time * 0.15 * (1 - f.k);
+        m.compose(pos.set(Math.cos(swirl) * r, level + f.s * 0.3, Math.sin(swirl) * r * fz), q.identity(), sc.set(f.s, f.s * 0.6, f.s));
+        foam.setMatrixAt(i, m);
+      }
+      foam.instanceMatrix.needsUpdate = true;
+    }
+
+    // the hero shot: a three-quarter turn that slowly sways, from a slightly low angle
+    bottle.rotation.y = lerp(0, -0.4 + Math.sin(time * 0.22) * 0.22, down);
     const capT = smooth(0.93, 0.99, P);
     cap.position.set(0, lerp(MOUTH + 2.2, MOUTH + 0.18, capT), 0);
     cap.rotation.y = capT * Math.PI * 3;
@@ -686,7 +861,10 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   tick();
 
   return {
-    setProgress: (p) => (progress = Math.min(1, Math.max(0, p))),
+    setProgress: (p, immediate) => {
+      progress = Math.min(1, Math.max(0, p));
+      if (immediate) shown = progress;
+    },
     setRunning: (on) => {
       running = on;
       if (on) clock.getDelta();
