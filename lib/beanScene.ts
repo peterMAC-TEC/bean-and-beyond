@@ -575,7 +575,9 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     const geo = new THREE.CylinderGeometry(R, R, h, 96, 1, true, -span, span * 2);
     geo.scale(1, 1, 0.56);
     geo.translate(0, 0.42 + h / 2, 0);
-    body.add(new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: lab.map, metalnessMap: lab.metalnessMap, roughnessMap: lab.roughnessMap, metalness: 1, roughness: 1, clearcoat: 0.15, clearcoatRoughness: 0.4, envMapIntensity: 0.9 })));
+    const labelMesh = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: lab.map, metalnessMap: lab.metalnessMap, roughnessMap: lab.roughnessMap, metalness: 1, roughness: 1, clearcoat: 0.15, clearcoatRoughness: 0.4, envMapIntensity: 0.9 }));
+    body.add(labelMesh);
+    void renderer.compileAsync(labelMesh, camera, scene).catch(() => {});
   });
   // studio lights for the bottle shot
   // a big soft light from high above (wide cone, full penumbra) instead of a hard front key
@@ -955,13 +957,56 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);
 
+  // ---- smoothness ----
+  // 1. compile every shader up front, with everything switched on, so nothing
+  //    stutters the first time the burst, the rain or the bottle appears
+  let warm = false;
+  const hidden: THREE.Object3D[] = [];
+  const showAll = (root: THREE.Object3D) =>
+    root.traverse((o) => {
+      if (!o.visible) {
+        hidden.push(o);
+        o.visible = true;
+      }
+    });
+  showAll(scene);
+  showAll(dustScene);
+  void Promise.all([renderer.compileAsync(scene, camera), renderer.compileAsync(dustScene, camera)])
+    .catch(() => {})
+    .finally(() => {
+      hidden.forEach((o) => (o.visible = false));
+      warm = true;
+      clock.getDelta();
+    });
+  // 2. if frames start running slow, render at a slightly lower resolution
+  //    (a step at a time) so the motion itself stays fluid
+  const MIN_PR = mobile ? 0.85 : 1;
+  let pr = renderer.getPixelRatio();
+  let avg = 1 / 60;
+  let slowFor = 0;
+  const adapt = (raw: number) => {
+    if (raw > 0.25) return; // tab was hidden or paused: not a real frame
+    avg += (raw - avg) * 0.1;
+    slowFor = avg > 1 / 48 ? slowFor + raw : 0;
+    if (slowFor > 0.7 && pr > MIN_PR) {
+      pr = Math.max(MIN_PR, pr * 0.82);
+      renderer.setPixelRatio(pr);
+      composer?.setPixelRatio(pr);
+      resize();
+      slowFor = 0;
+      avg = 1 / 60;
+    }
+  };
+
   let running = true;
   let raf = 0;
   const clock = new THREE.Clock();
   const tick = () => {
     raf = requestAnimationFrame(tick);
-    if (!running) return;
-    const dt = Math.min(clock.getDelta(), 0.05);
+    if (!running || !warm) return;
+    const raw = clock.getDelta();
+    adapt(raw);
+    const dt = Math.min(raw, 0.05);
     step(dt, clock.elapsedTime);
     if (composer) composer.render();
     else {

@@ -114,6 +114,7 @@ export const site = {
     { id: "lineup", label: "Line-up" },
     { id: "find-us", label: "Find us" },
     { id: "spotted", label: "Spotted" },
+    { id: "buy", label: "Buy" },
   ],
 
   // Hero: the bottle turns as you scroll through these chapters.
@@ -174,6 +175,13 @@ export const site = {
     kicker: "03. The Line-up",
     title: "Pick your pour.",
     tags: ["House special", "Smooth operator", "Last call"], // one per flavour, in order
+  },
+
+  // The last section on the page: buy a bottle.
+  buy: {
+    kicker: "07. Yours",
+    title: "Take one home.",
+    text: "180 ml of black coffee and a 30 ml shot of condensed milk, in green glass. Pick a flavour, pour it yourself.",
   },
 
   findUs: {

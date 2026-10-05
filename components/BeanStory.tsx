@@ -90,7 +90,8 @@ export function BeanStory() {
       ([e]) => {
         if (!e.isIntersecting) return;
         near.disconnect();
-        void start();
+        const idle = window.requestIdleCallback ?? ((f: () => void) => window.setTimeout(f, 1));
+        idle(() => void start(), { timeout: 1500 });
       },
       { rootMargin: "1200px 0px" },
     );

@@ -25,7 +25,7 @@ export function SmoothScroll() {
 
   useEffect(() => {
     if (reduced) return;
-    const lenis = new Lenis({ lerp: 0.1, anchors: true });
+    const lenis = new Lenis({ lerp: 0.085, anchors: true, wheelMultiplier: 0.95 });
     lenis.on("scroll", ScrollTrigger.update);
     // dev only: lets automated checks jump straight to a scroll position
     if (process.env.NODE_ENV !== "production") (window as unknown as { __lenis: Lenis }).__lenis = lenis;

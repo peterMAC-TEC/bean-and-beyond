@@ -73,7 +73,7 @@ export function OrderDrawer() {
   // opened from anywhere via openOrder()
   useEffect(() => {
     const onOpen = (e: Event) => {
-      const { mode: m, add } = (e as CustomEvent<OpenOrder>).detail ?? {};
+      const { mode: m, add, qty = 1 } = (e as CustomEvent<OpenOrder>).detail ?? {};
       if (m) {
         setMode(m);
         const p = packs.find((x) => x.id === m);
@@ -82,8 +82,8 @@ export function OrderDrawer() {
       if (add) {
         setCounts((c) => {
           const p = packs.find((x) => x.id === (m ?? mode));
-          if (p && sum(c) >= p.size) return c;
-          return { ...c, [add]: c[add] + 1 };
+          if (!p) return { ...c, [add]: c[add] + qty };
+          return { ...c, [add]: c[add] + Math.max(0, Math.min(qty, p.size - sum(c))) };
         });
       }
       setOpen(true);

@@ -167,6 +167,11 @@ export function FluidBottle({ variant, colours, layout, autoPour, className = ""
         s.height = `${LABEL.h * ph}px`;
         s.transformOrigin = `${LABEL.halfW * ph}px ${LABEL.top * ph}px`;
         s.transform = `rotate(${-T.angle}rad)`;
+        // first frame on the glass: fade the label and the liquid in together (no jump)
+        if (s.opacity !== "1") {
+          s.opacity = "1";
+          c.style.opacity = "1";
+        }
       }
     };
 
@@ -302,12 +307,12 @@ export function FluidBottle({ variant, colours, layout, autoPour, className = ""
 
   return (
     <div ref={box} className={`overflow-hidden ${className.includes("absolute") ? "" : "relative"} ${className}`}>
-      <canvas ref={canvas} aria-hidden className="absolute inset-0 h-full w-full touch-pan-y" />
+      <canvas ref={canvas} aria-hidden className="absolute inset-0 h-full w-full touch-pan-y transition-opacity duration-700" style={{ opacity: still ? 1 : 0 }} />
       {still && (
         <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(ellipse 50% 55% at 50% 45%, #2a1d12, #0b0907 75%)" }} />
       )}
       {/* the printed label, glued to the glass, with a light glint that follows the cursor */}
-      <div ref={label} className={`pointer-events-none absolute ${still ? "left-1/2 top-[15%] h-[60%] w-[43%] -translate-x-1/2" : ""}`} style={{ filter: "drop-shadow(0 4px 10px rgba(0,0,0,.45))" }}>
+      <div ref={label} className={`pointer-events-none absolute ${still ? "left-1/2 top-[15%] h-[60%] w-[43%] -translate-x-1/2" : ""}`} style={{ filter: "drop-shadow(0 4px 10px rgba(0,0,0,.45))", opacity: still ? 1 : 0, transition: "opacity .7s" }}>
         <Label className="h-full w-full" />
         <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,0) 18%, rgba(255,250,235,.07) 38%, rgba(0,0,0,0) 58%, rgba(0,0,0,.6))" }} />
         <div ref={glint} aria-hidden className="absolute inset-0 mix-blend-screen" />

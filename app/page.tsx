@@ -5,6 +5,7 @@ import { LineUp } from "@/components/LineUp";
 import { FindUs } from "@/components/FindUs";
 import { InstagramBand } from "@/components/InstagramBand";
 import { Footer } from "@/components/Footer";
+import { Buy } from "@/components/Buy";
 
 export default function Home() {
   return (
@@ -17,6 +18,7 @@ export default function Home() {
         {/* The pack builder is the order panel (components/OrderDrawer.tsx). TODO (Phase 4): Bulk & corporate gifting form */}
         <FindUs />
         <InstagramBand />
+        <Buy />
       </main>
       <Footer />
     </>

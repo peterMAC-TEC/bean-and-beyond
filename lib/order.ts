@@ -3,9 +3,10 @@
  *   openOrder()                  just open it
  *   openOrder({ mode: "three" }) open on the 3-pack (a pack id from content/site.ts)
  *   openOrder({ add: "classic" }) open and add one bottle of that flavour
+ *   openOrder({ mode: "bottles", add: "vanilla", qty: 2 }) open with two Vanilla bottles added
  */
 export type OrderMode = "bottles" | string;
-export type OpenOrder = { mode?: OrderMode; add?: string };
+export type OpenOrder = { mode?: OrderMode; add?: string; qty?: number };
 
 export const ORDER_EVENT = "bb:order";
 
