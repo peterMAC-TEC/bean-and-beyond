@@ -6,6 +6,7 @@ import { Loader } from "@/components/Loader";
 import { Cursor } from "@/components/Cursor";
 import { SmoothScroll } from "@/components/SmoothScroll";
 import { Hud } from "@/components/Hud";
+import { OrderDrawer } from "@/components/OrderDrawer";
 
 // Vintage serif from the label: the brand name and italic accents
 const display = Playfair_Display({ variable: "--font-display", subsets: ["latin"], style: ["normal", "italic"] });
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <SmoothScroll />
         <Cursor />
         <Hud />
+        <OrderDrawer />
         <div aria-hidden className="bb-vignette" />
         <div aria-hidden className="bb-grain" />
         {children}

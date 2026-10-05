@@ -2,6 +2,7 @@
 
 import { site } from "@/content/site";
 import { play } from "@/lib/sound";
+import { openOrder } from "@/lib/order";
 import { TextReveal } from "./TextReveal";
 import { FluidBottle, type BottleColours, type BottleLayout } from "./FluidBottle";
 
@@ -13,9 +14,7 @@ const COLOURS: Record<string, BottleColours> = {
 };
 const CARD_LAYOUT: BottleLayout = () => ({ x: 0.5, y: 0.09, h: 0.74 });
 
-const wa = (text: string) => `https://wa.me/${site.contact.whatsapp}?text=${encodeURIComponent(text)}`;
-
-/** The line-up: one card per flavour, then the packs. TODO (Phase 3): buttons add to the cart. */
+/** The line-up: one card per flavour. "Add to order" opens the order panel (components/OrderDrawer.tsx). */
 export function LineUp() {
   const { lineup, flavours, packs, addOns } = site;
   const single = flavours[0].price;
@@ -63,55 +62,38 @@ export function LineUp() {
                     </li>
                   ))}
                 </ul>
-                <a
-                  href={wa(`Hi! I'd like to order a ${f.name} bottle.`)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => play("clink")}
-                  className="hud mt-5 block rounded-sm border border-gold/40 py-3 text-center text-[15px] text-gold transition hover:border-glow hover:bg-glow hover:text-ink"
+                <button
+                  type="button"
+                  onClick={() => {
+                    play("clink");
+                    openOrder({ add: f.id });
+                  }}
+                  className="hud mt-5 block w-full rounded-sm border border-gold/40 py-3 text-center text-[15px] text-gold transition hover:border-glow hover:bg-glow hover:text-ink"
                 >
                   + Add to order
-                </a>
+                </button>
               </div>
             </article>
           ))}
         </div>
 
-        {/* packs */}
-        <div className="mt-5 grid gap-5 md:grid-cols-2">
-          {packs.map((p) => {
-            const save = p.size * single - p.price;
-            const free = !p.delivery.startsWith("TODO");
-            return (
-              <div key={p.id} className="brackets flex flex-col justify-between gap-6 rounded-lg border border-line bg-panel-2 p-6 sm:flex-row sm:items-center">
-                <div>
-                  <p className="mono text-muted">Mix &amp; match · {p.size} bottles</p>
-                  <p className="hud mt-2 text-4xl font-extralight text-cream">The {p.size}-pack</p>
-                  <p className="mono mt-2 text-glow">
-                    Save ₹{save} · {free ? p.delivery : "+ delivery"}
-                  </p>
-                </div>
-                <div className="text-left sm:text-right">
-                  <p className="hud text-4xl text-glow">₹{p.price}</p>
-                  <a
-                    href={wa(`Hi! I'd like the ${p.size}-pack. Flavours: `)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => play("clink")}
-                    className="hud mt-3 inline-block rounded-sm bg-glow px-5 py-2.5 text-[15px] font-medium text-ink transition hover:bg-cream"
-                  >
-                    + Build my {p.size}-pack
-                  </a>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {milk && (
-          <p className="mono mt-5 text-muted">
-            Add-on: {milk.name} · ₹{milk.price} — for the ones who like it sweeter.
+        {/* packs live in the order panel; one quiet line points to them */}
+        <div className="mt-6 flex flex-col items-start justify-between gap-3 border-t border-line pt-5 sm:flex-row sm:items-center">
+          <p className="mono text-muted">
+            Mix &amp; match · {packs.map((p) => `${p.size} for ₹${p.price}`).join(" · ")}
+            {milk && ` · ${milk.name} +₹${milk.price}`}
           </p>
-        )}
+          <button
+            type="button"
+            onClick={() => {
+              play("clink");
+              openOrder({ mode: packs[0].id });
+            }}
+            className="hud text-[15px] text-glow underline-offset-4 transition hover:underline"
+          >
+            Build a pack →
+          </button>
+        </div>
       </div>
     </section>
   );

@@ -29,10 +29,17 @@ export function SmoothScroll() {
     lenis.on("scroll", ScrollTrigger.update);
     // dev only: lets automated checks jump straight to a scroll position
     if (process.env.NODE_ENV !== "production") (window as unknown as { __lenis: Lenis }).__lenis = lenis;
+    // the order panel pauses page scrolling while it's open
+    const lock = () => lenis.stop();
+    const unlock = () => lenis.start();
+    window.addEventListener("bb:lock", lock);
+    window.addEventListener("bb:unlock", unlock);
     const tick = (t: number) => lenis.raf(t * 1000);
     gsap.ticker.add(tick);
     gsap.ticker.lagSmoothing(0);
     return () => {
+      window.removeEventListener("bb:lock", lock);
+      window.removeEventListener("bb:unlock", unlock);
       gsap.ticker.remove(tick);
       lenis.destroy();
     };

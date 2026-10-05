@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getMuted, setMuted, subscribeSound, play } from "@/lib/sound";
 import { site } from "@/content/site";
+import { openOrder } from "@/lib/order";
 
 const RUNTIME = 180; // the page "plays" like a 3-minute film; the timecode shows where you are
 
@@ -102,13 +103,16 @@ export function Hud() {
           </nav>
           <div className="flex items-center gap-5">
             <SoundToggle />
-            <a
-              href="#lineup"
-              onClick={() => play("clink")}
+            <button
+              type="button"
+              onClick={() => {
+                play("clink");
+                openOrder();
+              }}
               className="hud hidden rounded-sm border border-glow/60 px-4 py-1.5 text-[13px] text-glow transition hover:bg-glow hover:text-ink sm:block"
             >
               Order ↗
-            </a>
+            </button>
           </div>
         </div>
       </header>
@@ -139,9 +143,16 @@ export function Hud() {
           </div>
           <span className="mono hidden shrink-0 text-muted md:block">BB-01 · 180 ml · 0% ABV</span>
           {/* phones: the order button sits in the bar, so it never covers the story text */}
-          <a href="#lineup" onClick={() => play("clink")} className="hud shrink-0 rounded-sm bg-glow px-3.5 py-1.5 text-[13px] font-semibold text-ink sm:hidden">
+          <button
+            type="button"
+            onClick={() => {
+              play("clink");
+              openOrder();
+            }}
+            className="hud shrink-0 rounded-sm bg-glow px-3.5 py-1.5 text-[13px] font-semibold text-ink sm:hidden"
+          >
             Order ↗
-          </a>
+          </button>
         </div>
       </div>
     </>

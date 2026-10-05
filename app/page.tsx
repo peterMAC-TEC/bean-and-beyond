@@ -14,7 +14,7 @@ export default function Home() {
         <BeanStory />
         <Marble />
         <LineUp />
-        {/* TODO (Phase 3): Build your crate (pack builder). (Phase 4): Bulk & corporate gifting form */}
+        {/* The pack builder is the order panel (components/OrderDrawer.tsx). TODO (Phase 4): Bulk & corporate gifting form */}
         <FindUs />
         <InstagramBand />
       </main>
