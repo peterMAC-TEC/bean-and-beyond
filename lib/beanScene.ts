@@ -24,6 +24,8 @@ export type BeanScene = {
   /** immediate skips the smoothing (used by automated snapshots) */
   setProgress: (p: number, immediate?: boolean) => void;
   setRunning: (on: boolean) => void;
+  /** called when the coffee sloshes hard enough to hear (0..1) */
+  onSlosh?: (strength: number) => void;
   dispose: () => void;
 };
 
@@ -474,11 +476,14 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   const bottle = new THREE.Group();
   bottle.position.y = BOTTLE_Y;
   scene.add(bottle);
+  // the bottle sways (bottle.rotation.y); body rocks on its base when you drag it
+  const body = new THREE.Group();
+  bottle.add(body);
   const glass = new THREE.Mesh(
     bottleGeometry(BOTTLE, BOTTLE_S * 2.05, 0.56),
     new THREE.MeshPhysicalMaterial({ color: 0xe6f8ea, transmission: 1, roughness: 0.09, thickness: 0.3, ior: 1.5, attenuationColor: new THREE.Color(0x1a8f42), attenuationDistance: 1.6, clearcoat: 0.6, clearcoatRoughness: 0.18, specularIntensity: 0.55, envMapIntensity: 0.75 }),
   );
-  bottle.add(glass);
+  body.add(glass);
   {
     const drops = dropletNormalMap();
     drops.repeat.set(2, 3);
@@ -491,9 +496,17 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   const fillPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), BOTTLE_Y);
   const inside = new THREE.Mesh(
     bottleGeometry(BOTTLE.map(([r, y]) => [r * 0.92, Math.max(0.08, Math.min(y, 3.9))] as [number, number]), BOTTLE_S * 2.05, 0.56),
-    new THREE.MeshPhysicalMaterial({ color: 0x1d0d05, roughness: 0.2, clearcoat: 0.5, clearcoatRoughness: 0.25, emissive: new THREE.Color(0x3a1706), emissiveIntensity: 0.35, clippingPlanes: [fillPlane] }),
+    new THREE.MeshPhysicalMaterial({ color: 0x1d0d05, roughness: 0.2, clearcoat: 0.5, clearcoatRoughness: 0.25, emissive: new THREE.Color(0x3a1706), emissiveIntensity: 0.35, clippingPlanes: [fillPlane], side: THREE.DoubleSide }),
   );
-  bottle.add(inside);
+  (inside.material as THREE.MeshPhysicalMaterial).onBeforeCompile = (sh) => {
+    sh.uniforms.uEdge = { value: new THREE.Color(0x5a2208) };
+    sh.fragmentShader = "uniform vec3 uEdge;\n" + sh.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      `#include <emissivemap_fragment>
+      totalEmissiveRadiance += uEdge * pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 3.0);`,
+    );
+  };
+  body.add(inside);
 
   // the coffee's surface, rising as the bottle fills: it ripples where the
   // stream lands and gathers a ring of crema-coloured foam
@@ -512,23 +525,47 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   };
   const rippleTime = { value: 0 };
   const rippleAmp = { value: 0 };
+  const waveAmp = { value: 0 };
   const surfaceMat = new THREE.MeshPhysicalMaterial({ color: 0x1d0d05, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05, emissive: new THREE.Color(0x2a1105), emissiveIntensity: 0.3, flatShading: true });
   surfaceMat.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = rippleTime;
     sh.uniforms.uAmp = rippleAmp;
-    sh.vertexShader = "uniform float uTime; uniform float uAmp;\n" + sh.vertexShader.replace(
+    sh.uniforms.uWave = waveAmp;
+    sh.vertexShader = "uniform float uTime; uniform float uAmp; uniform float uWave;\n" + sh.vertexShader.replace(
       "#include <begin_vertex>",
       `#include <begin_vertex>
       float rr = length(position.xy);
-      transformed.z += uAmp * sin(rr * 46.0 - uTime * 14.0) * exp(-rr * 2.2) * 0.02;`,
+      transformed.z += uAmp * sin(rr * 46.0 - uTime * 14.0) * exp(-rr * 2.2) * 0.02;
+      // always a little alive: slow cross-ripples, stronger while it sloshes
+      transformed.z += (0.0025 + uWave * 0.012) * (sin(position.x * 7.0 + uTime * 1.7) * sin(position.y * 6.0 - uTime * 1.3) + 0.6 * sin(rr * 18.0 - uTime * 4.0) * rr);`,
     );
   };
   const surface = new THREE.Mesh(new THREE.RingGeometry(0.0001, 1, 96, 28), surfaceMat);
   surface.rotation.x = -Math.PI / 2;
-  bottle.add(surface);
+  const liquidTop = new THREE.Group();
+  body.add(liquidTop);
+  liquidTop.add(surface);
+  // a thin lighter ring where the coffee meets the glass: it catches the strip lights
+  const meniscus = new THREE.Mesh(
+    new THREE.RingGeometry(0.965, 1, 96, 1),
+    new THREE.MeshPhysicalMaterial({ color: 0x4a240e, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.05, emissive: new THREE.Color(0x8a4416), emissiveIntensity: 0.9 }),
+  );
+  meniscus.rotation.x = -Math.PI / 2;
+  meniscus.position.y = 0.004;
+  liquidTop.add(meniscus);
   const FOAM = mobile ? 70 : 160;
   const foam = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshPhysicalMaterial({ color: 0x7a4a26, roughness: 0.25, clearcoat: 0.8, transparent: true, opacity: 0.9 }), FOAM);
-  bottle.add(foam);
+  liquidTop.add(foam);
+  // tiny bubbles clinging to the inside of the glass, drifting up after the pour
+  const BUBBLES = mobile ? 45 : 120;
+  const bubbles = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(1, 10, 8),
+    new THREE.MeshPhysicalMaterial({ color: 0xb98458, roughness: 0.05, clearcoat: 1, emissive: new THREE.Color(0x2a1206), emissiveIntensity: 0.6, clippingPlanes: [fillPlane] }),
+    BUBBLES,
+  );
+  bubbles.frustumCulled = false;
+  body.add(bubbles);
+  const bubbleP = Array.from({ length: BUBBLES }, () => ({ a: Math.random() * Math.PI * 2, ph: Math.random(), sp: 0.015 + Math.random() * 0.05, s: 0.006 + Math.pow(Math.random(), 3) * 0.016, w: Math.random() * 6 }));
   const foamP = Array.from({ length: FOAM }, () => ({ a: Math.random() * Math.PI * 2, k: Math.random() < 0.7 ? 0.82 + Math.random() * 0.16 : Math.random() * 0.8, s: 0.008 + Math.pow(Math.random(), 2) * 0.03 }));
   // the gold-foil label, wrapped round the front
   void labelMaps().then((lab) => {
@@ -538,7 +575,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     const geo = new THREE.CylinderGeometry(R, R, h, 96, 1, true, -span, span * 2);
     geo.scale(1, 1, 0.56);
     geo.translate(0, 0.42 + h / 2, 0);
-    bottle.add(new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: lab.map, metalnessMap: lab.metalnessMap, roughnessMap: lab.roughnessMap, metalness: 1, roughness: 1, clearcoat: 0.15, clearcoatRoughness: 0.4, envMapIntensity: 0.9 })));
+    body.add(new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: lab.map, metalnessMap: lab.metalnessMap, roughnessMap: lab.roughnessMap, metalness: 1, roughness: 1, clearcoat: 0.15, clearcoatRoughness: 0.4, envMapIntensity: 0.9 })));
   });
   // studio lights for the bottle shot
   // a big soft light from high above (wide cone, full penumbra) instead of a hard front key
@@ -582,7 +619,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   scene.add(plinth);
   // brushed, satin aluminium: reads as metal without a blinding highlight
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.46 * BOTTLE_S * 2.05, 0.46 * BOTTLE_S * 2.05, 0.5, 64), new THREE.MeshStandardMaterial({ color: 0xc9ccd0, metalness: 1, roughness: 0.48, envMapIntensity: 0.7 }));
-  scene.add(cap);
+  body.add(cap);
 
   // ------------------------------------------------------------- post ----
   let composer: EffectComposer | null = null;
@@ -610,6 +647,12 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   const cursor = new THREE.Vector3(99, 99, 99);
   const drag = { on: false, x: 0, y: 0, rx: 0, ry: 0, vx: 0, vy: 0 };
+  // the finished bottle: where you're tilting it to, its tilt, and the coffee's own tilt (both vs. upright)
+  const tip = { on: false, x: 0, y: 0, tx: 0, tz: 0 };
+  const tilt = { x: 0, z: 0, vx: 0, vz: 0 };
+  const slosh = { x: 0, z: 0, vx: 0, vz: 0 };
+  let lastSlosh = 0;
+  let capped = false;
   const onMove = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -617,6 +660,12 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     plane.constant = -look.z;
     if (!ray.ray.intersectPlane(plane, cursor)) cursor.set(99, 99, 99);
     cursorLight.position.set(cursor.x, cursor.y, cursor.z + 1.2);
+    if (tip.on) {
+      tip.tz = Math.max(-0.38, Math.min(0.38, tip.tz - (e.clientX - tip.x) * 0.0035));
+      tip.tx = Math.max(-0.22, Math.min(0.22, tip.tx + (e.clientY - tip.y) * 0.0025));
+      tip.x = e.clientX;
+      tip.y = e.clientY;
+    }
     if (drag.on) {
       drag.vy = (e.clientX - drag.x) * 0.012;
       drag.vx = (e.clientY - drag.y) * 0.012;
@@ -627,6 +676,12 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     }
   };
   const onDown = (e: PointerEvent) => {
+    if (progress > 0.94) {
+      tip.on = true;
+      tip.x = e.clientX;
+      tip.y = e.clientY;
+      return;
+    }
     if (progress > EXPLODE) return;
     drag.on = true;
     drag.x = e.clientX;
@@ -634,6 +689,8 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   };
   const onUp = () => {
     drag.on = false;
+    tip.on = false;
+    tip.tx = tip.tz = 0; // let go and it rocks back upright
     if (mobile) cursor.set(99, 99, 99);
   };
   const onLeave = () => cursor.set(99, 99, 99);
@@ -685,8 +742,8 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     const cz = lerp(lerp(2.9, 2.2, smooth(0.08, 0.24, P)), 7.5, smooth(EXPLODE, 0.4, P));
     const cy = lerp(0.05, -0.3, smooth(0.4, 0.6, P));
     const down = smooth(0.7, 0.84, P); // arrive at the bottle before the coffee reaches it
-    camera.position.set(Math.sin(time * 0.15) * 0.12 * (1 - down) + ndc.x * 0.08, lerp(cy, BOTTLE_Y + 2.7, down), lerp(cz, camera.aspect < 0.8 ? 10.6 : 9.6, down));
-    look.set(0, lerp(0, BOTTLE_Y + 2.15, down), 0);
+    camera.position.set(Math.sin(time * 0.15) * 0.12 * (1 - down) + ndc.x * 0.08, lerp(cy, BOTTLE_Y + 2.8, down), lerp(cz, camera.aspect < 0.8 ? 11.2 : 10.3, down));
+    look.set(0, lerp(0, BOTTLE_Y + 2.3, down), 0);
     camera.lookAt(look);
     key.intensity = 32 * (1 - down);
     rim.intensity = 50 * (1 - down);
@@ -772,7 +829,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
 
     // the pour: the stream reaches down to the coffee's surface, the bottle
     // fills, then the stream's tail falls in and it's gone
-    const FILL_TOP = 3.05;
+    const FILL_TOP = 2.74; // just under the shoulder, so the coffee line shows through the glass
     const fill = smooth(0.78, 0.92, P);
     const level = 0.1 + fill * (FILL_TOP - 0.1); // bottle-local height of the coffee
     const surfaceY = BOTTLE_Y + level;
@@ -797,11 +854,8 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
       }
       loose.instanceMatrix.needsUpdate = true;
     }
-    fillPlane.constant = surfaceY;
     surface.visible = fill > 0.002;
-    surface.position.y = level;
     const rIn = innerR(level) * 0.99;
-    surface.scale.set(rIn, rIn * flatAt(level), 1);
     rippleTime.value = time;
     rippleAmp.value = lerp(rippleAmp.value, pouring ? 1 : 0, Math.min(1, dt * 3));
     foam.visible = fill > 0.05;
@@ -811,7 +865,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
         const f = foamP[i];
         const r = rIn * f.k;
         const swirl = f.a + time * 0.15 * (1 - f.k);
-        m.compose(pos.set(Math.cos(swirl) * r, level + f.s * 0.3, Math.sin(swirl) * r * fz), q.identity(), sc.set(f.s, f.s * 0.6, f.s));
+        m.compose(pos.set(Math.cos(swirl) * r, f.s * 0.3, Math.sin(swirl) * r * fz), q.identity(), sc.set(f.s, f.s * 0.6, f.s));
         foam.setMatrixAt(i, m);
       }
       foam.instanceMatrix.needsUpdate = true;
@@ -820,7 +874,68 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     // the hero shot: a three-quarter turn that slowly sways, from a slightly low angle
     bottle.rotation.y = lerp(0, -0.4 + Math.sin(time * 0.22) * 0.22, down);
     const capT = smooth(0.93, 0.99, P);
-    cap.position.set(0, lerp(MOUTH + 2.2, MOUTH + 0.18, capT), 0);
+
+    // ---- live coffee: the bottle rocks on its base towards where you drag it (a
+    // springy, slightly underdamped follow); the coffee is heavier and lags behind,
+    // overshoots and sloshes back and forth before settling level
+    const h = Math.min(dt, 1 / 30);
+    if (P < 0.94) tip.tx = tip.tz = 0;
+    const ax = (tip.tx - tilt.x) * 70 - tilt.vx * 12;
+    const az = (tip.tz - tilt.z) * 70 - tilt.vz * 12;
+    tilt.vx += ax * h;
+    tilt.vz += az * h;
+    tilt.x += tilt.vx * h;
+    tilt.z += tilt.vz * h;
+    // the cap pressing on gives it a small knock
+    if (!capped && capT > 0.97) {
+      capped = true;
+      slosh.vz += 0.35;
+      slosh.vx -= 0.18;
+    }
+    if (capT < 0.5) capped = false;
+    // coffee: pulled level by gravity (K), lightly damped (C), dragged along by the glass (G)
+    const K = 38, C = 1.5, G = 0.85;
+    slosh.vx += (-K * slosh.x - C * slosh.vx + G * ax) * h;
+    slosh.vz += (-K * slosh.z - C * slosh.vz + G * az) * h;
+    slosh.x = Math.max(-0.45, Math.min(0.45, slosh.x + slosh.vx * h));
+    slosh.z = Math.max(-0.45, Math.min(0.45, slosh.z + slosh.vz * h));
+    body.rotation.set(tilt.x, 0, tilt.z);
+    const energy = Math.hypot(slosh.vx, slosh.vz);
+    waveAmp.value += (Math.min(1, energy * 0.9) - waveAmp.value) * Math.min(1, h * 8);
+    if (energy > 0.55 && time - lastSlosh > 0.45 && fill > 0.95) {
+      lastSlosh = time;
+      api.onSlosh?.(Math.min(1, energy / 2.5));
+    }
+    // the surface stays (nearly) level in the world while the glass tilts round it
+    const rx = slosh.x - tilt.x;
+    const rz = slosh.z - tilt.z;
+    liquidTop.position.y = level;
+    liquidTop.rotation.set(rx, 0, rz);
+    surface.scale.set(rIn / Math.cos(rz), (rIn * flatAt(level)) / Math.cos(rx), 1);
+    meniscus.scale.copy(surface.scale);
+    meniscus.visible = surface.visible;
+    // the cut through the coffee follows the same tilted surface
+    bottle.updateMatrixWorld(true);
+    liquidTop.getWorldPosition(tmpV);
+    liquidTop.getWorldQuaternion(q);
+    fillPlane.normal.set(0, -1, 0).applyQuaternion(q);
+    fillPlane.constant = -fillPlane.normal.dot(tmpV);
+    // bubbles creep up the inside of the glass and vanish at the surface
+    bubbles.visible = fill > 0.3;
+    if (bubbles.visible) {
+      for (let i = 0; i < BUBBLES; i++) {
+        const b = bubbleP[i];
+        const k = (b.ph + time * b.sp) % 1;
+        const y = 0.18 + k * (level - 0.2);
+        const r = innerR(y) * 1.012;
+        const a = b.a + Math.sin(time * 0.6 + b.w) * 0.02;
+        const sz = b.s * Math.min(1, k * 12) * Math.min(1, (1 - k) * 20) * fill;
+        m.compose(pos.set(Math.cos(a) * r, y, Math.sin(a) * r * flatAt(y)), q.identity(), sc.setScalar(Math.max(sz, 0.0001)));
+        bubbles.setMatrixAt(i, m);
+      }
+      bubbles.instanceMatrix.needsUpdate = true;
+    }
+    cap.position.set(0, lerp(MOUTH + 2.2, MOUTH + 0.18, capT) - BOTTLE_Y, 0);
     cap.rotation.y = capT * Math.PI * 3;
     cap.visible = P > 0.9;
   };
@@ -858,9 +973,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
       renderer.render(dustScene, camera);
     }
   };
-  tick();
-
-  return {
+  const api: BeanScene = {
     setProgress: (p, immediate) => {
       progress = Math.min(1, Math.max(0, p));
       if (immediate) shown = progress;
@@ -889,4 +1002,6 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
       renderer.dispose();
     },
   };
+  tick();
+  return api;
 }

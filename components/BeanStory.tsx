@@ -78,6 +78,7 @@ export function BeanStory() {
         console.error(err);
         return;
       }
+      scene.onSlosh = (s) => play("slosh", { gain: 0.35 + s * 0.5 });
       io.observe(el);
       update();
       setReady(true);

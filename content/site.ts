@@ -156,7 +156,7 @@ export const site = {
     { at: 0.27, kicker: "03. Released", title: "Released.", text: "A slow-motion storm of fresh grounds. Move through it." },
     { at: 0.44, kicker: "04. Brewed", title: "Water meets grounds.", text: "Cold water falls through and takes everything the grounds have." },
     { at: 0.62, kicker: "05. Becoming coffee", title: "Black. Glossy. Ready.", text: "The grounds give up. What's left is pure coffee." },
-    { at: 0.8, kicker: "06. Bottled", title: "Bottled with a straight face.", text: "180 ml, into green glass, capped. It's not what you think it is." },
+    { at: 0.8, kicker: "06. Bottled", title: "Bottled with a straight face.", text: "180 ml, into green glass, capped. Drag the bottle and watch it slosh." },
   ],
 
   ritual: {
