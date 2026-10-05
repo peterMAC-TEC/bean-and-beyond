@@ -35,7 +35,7 @@ export const site = {
     instagram: "beanandbeyond26",
     instagramUrl: "https://instagram.com/beanandbeyond26",
     city: "Bengaluru",
-    fssai: "TODO: FSSAI licence number", // hidden on the site until filled in
+    fssai: "", // none yet; add the number here when you get one and it shows in the footer
   },
 
   // ---------- Flavours ----------

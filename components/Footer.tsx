@@ -2,7 +2,7 @@ import { site } from "@/content/site";
 
 export function Footer() {
   const { contact, brand, warning } = site;
-  const hasFssai = !contact.fssai.startsWith("TODO");
+  const hasFssai = contact.fssai !== "";
   return (
     <footer className="relative overflow-hidden border-t border-line bg-ink px-5 pb-16 pt-20 sm:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl">
