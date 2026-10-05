@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getMuted, setMuted, subscribeSound, play } from "@/lib/sound";
 import { site } from "@/content/site";
-import { Magnetic } from "./Magnetic";
 
 const RUNTIME = 180; // the page "plays" like a 3-minute film; the timecode shows where you are
 
@@ -130,7 +129,7 @@ export function Hud() {
 
       {/* bottom progress bar */}
       <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-ink/80 backdrop-blur-md">
-        <div className="flex h-9 items-center gap-4 px-4 sm:px-6">
+        <div className="flex h-11 items-center gap-3 px-4 sm:h-9 sm:gap-4 sm:px-6">
           <span className="mono shrink-0 text-cream">
             {"// "}{String(Math.max(0, active) + 1).padStart(2, "0")} {current.label}
           </span>
@@ -139,16 +138,11 @@ export function Hud() {
             <div ref={bar} className="absolute inset-0 origin-left" style={{ transform: "scaleX(0)", background: "repeating-linear-gradient(90deg, var(--glow) 0 1px, transparent 1px 8px)", boxShadow: "0 0 12px rgba(233,196,106,.25)" }} />
           </div>
           <span className="mono hidden shrink-0 text-muted md:block">BB-01 · 180 ml · 0% ABV</span>
-        </div>
-      </div>
-
-      {/* persistent order button (phones) */}
-      <div className="fixed bottom-12 right-4 z-50 sm:hidden">
-        <Magnetic>
-          <a href="#lineup" onClick={() => play("clink")} className="hud block rounded-sm bg-glow px-5 py-3 text-sm font-semibold text-ink shadow-[0_10px_30px_rgba(0,0,0,.6)]">
-            Order now ↗
+          {/* phones: the order button sits in the bar, so it never covers the story text */}
+          <a href="#lineup" onClick={() => play("clink")} className="hud shrink-0 rounded-sm bg-glow px-3.5 py-1.5 text-[13px] font-semibold text-ink sm:hidden">
+            Order ↗
           </a>
-        </Magnetic>
+        </div>
       </div>
     </>
   );

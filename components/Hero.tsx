@@ -8,7 +8,7 @@ import { Button } from "./Button";
 
 const COLOURS: BottleColours = { coffee: "#170b05", caramel: "#9a5a26", milk: "#f4e8cc" };
 // right of the copy on wide screens, above it on phones
-const LAYOUT: BottleLayout = (w, h) => (w / h > 1.1 ? { x: 0.66, y: 0.12, h: 0.8 } : { x: 0.5, y: 0.38, h: 0.54 });
+const LAYOUT: BottleLayout = (w, h) => (w / h > 1.1 ? { x: 0.66, y: 0.12, h: 0.8 } : { x: 0.5, y: 0.4, h: 0.49 });
 
 /** Opening page: a bottle of live coffee you can stir, pour, tilt and shake. */
 export function Hero() {
@@ -39,7 +39,7 @@ export function Hero() {
         <p className="h-in mono text-muted">
           {hero.kicker} <span className="text-glow">{"// 01. The Bottle"}</span>
         </p>
-        <h1 className="h-in hud mt-3 max-w-[13ch] text-[clamp(2.6rem,6.4vw,6.2rem)] font-extralight leading-[0.9] text-cream">{hero.headline}</h1>
+        <h1 className="h-in hud mt-3 max-w-[15ch] text-[clamp(2.4rem,6.4vw,6.2rem)] lg:max-w-[13ch] font-extralight leading-[0.9] text-cream">{hero.headline}</h1>
         <p className="h-in mt-5 hidden max-w-md text-[17px] leading-relaxed text-muted sm:block">{hero.body}</p>
         <ul className="h-in mt-6 hidden max-w-sm space-y-2 lg:block">
           {hero.specs.slice(0, 4).map(([k, v]) => (
@@ -54,9 +54,10 @@ export function Hero() {
           <Button href="#lineup">+ Order a bottle · ₹249</Button>
           <span className="mono hidden text-muted sm:inline">0% ABV · ID not required</span>
         </div>
+        <p className="h-in mono mt-4 text-muted lg:hidden">Tap the bottle to pour · drag to tilt</p>
       </div>
 
-      <div className="h-in pointer-events-none absolute right-5 top-20 text-right sm:right-8 lg:top-24">
+      <div className="h-in pointer-events-none absolute right-5 top-20 hidden text-right sm:right-8 lg:top-24 lg:block">
         <p className="mono text-glow">Interactive</p>
         <p className="mono mt-2 leading-relaxed text-muted">
           Tap the bottle to pour

@@ -87,7 +87,7 @@ function audio() {
     smooth.Q.value = 0.5;
     smooth.connect(comp);
     master = ctx.createGain();
-    master.gain.value = 0.42;
+    master.gain.value = 0.55;
     master.connect(smooth);
     const verb = ctx.createConvolver();
     verb.buffer = roomImpulse(ctx, 0.9);

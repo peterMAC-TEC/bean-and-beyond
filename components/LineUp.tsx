@@ -11,7 +11,7 @@ const COLOURS: Record<string, BottleColours> = {
   vanilla: { coffee: "#1d0f07", caramel: "#bb8c4f", milk: "#fcf2da" },
   hazelnut: { coffee: "#180b05", caramel: "#a8602c", milk: "#edd3aa" },
 };
-const CARD_LAYOUT: BottleLayout = () => ({ x: 0.5, y: 0.1, h: 0.82 });
+const CARD_LAYOUT: BottleLayout = () => ({ x: 0.5, y: 0.09, h: 0.74 });
 
 const wa = (text: string) => `https://wa.me/${site.contact.whatsapp}?text=${encodeURIComponent(text)}`;
 

@@ -7,7 +7,7 @@ export function InstagramBand() {
   return (
     <section id="spotted" className="relative overflow-hidden border-y border-line bg-ink px-5 py-24 sm:px-8 lg:px-12">
       {/* a slow ticker of the handle, outlined */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 overflow-hidden whitespace-nowrap">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-3 overflow-hidden whitespace-nowrap opacity-60 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:opacity-100">
         <p className="bb-ticker hud inline-block text-[18vw] font-extralight leading-none text-transparent" style={{ WebkitTextStroke: "1px rgba(220,192,138,.14)" }}>
           @{contact.instagram} · @{contact.instagram} · @{contact.instagram} ·&nbsp;
         </p>

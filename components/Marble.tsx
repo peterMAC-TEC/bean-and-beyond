@@ -56,7 +56,8 @@ export function Marble() {
         if (pourT < 2.4) {
           const a = Math.random() * Math.PI * 2;
           const wob = Math.sin(pourT * 9) * 0.012;
-          fluid.splat(0.56 + wob, 0.62 + Math.cos(pourT * 7) * 0.012, Math.cos(a) * 340, Math.sin(a) * 340, 0.26, 0.025 + Math.random() * 0.04);
+          const narrow = innerWidth < innerHeight ? 0.45 : 1; // splash size is relative to height, so shrink it on tall phones
+          fluid.splat(0.56 + wob, 0.62 + Math.cos(pourT * 7) * 0.012, Math.cos(a) * 340, Math.sin(a) * 340, 0.26 * (0.6 + narrow * 0.4), (0.025 + Math.random() * 0.04) * narrow);
           milkMl = Math.min(30, (pourT / 2.4) * 30);
         } else pourT = -1;
       }

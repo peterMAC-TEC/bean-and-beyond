@@ -18,6 +18,7 @@ import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { labelMaps } from "./textures";
+import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 
 export type BeanScene = {
   setProgress: (p: number) => void;
@@ -39,19 +40,29 @@ function fbmCanvas(size: number, octaves: number, contrast: number) {
   const g = c.getContext("2d")!;
   g.fillStyle = "#808080";
   g.fillRect(0, 0, size, size);
+  // value noise: each octave is a small random grid scaled up with smoothing,
+  // so there are no hard-edged blocks at any resolution
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
   for (let o = 0; o < octaves; o++) {
-    const cells = 4 << o;
-    const step = size / cells;
-    for (let y = 0; y < cells; y++)
-      for (let x = 0; x < cells; x++) {
-        const v = Math.floor(128 + (Math.random() - 0.5) * 255 * contrast / (o + 1));
-        g.fillStyle = `rgba(${v},${v},${v},0.5)`;
-        g.fillRect(x * step, y * step, step + 1, step + 1);
-      }
-    g.filter = "blur(1px)";
-    g.drawImage(c, 0, 0);
-    g.filter = "none";
+    const cells = Math.min(size, 4 << o);
+    const oc = document.createElement("canvas");
+    oc.width = oc.height = cells;
+    const og = oc.getContext("2d")!;
+    const img = og.createImageData(cells, cells);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = 128 + ((Math.random() - 0.5) * 255 * contrast) / (o + 1);
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+    og.putImageData(img, 0, 0);
+    g.globalAlpha = 0.5;
+    g.drawImage(oc, 0, 0, size, size);
   }
+  g.globalAlpha = 1;
+  g.filter = "blur(1px)";
+  g.drawImage(c, 0, 0);
+  g.filter = "none";
   return c;
 }
 
@@ -97,8 +108,8 @@ function softDisc(colour: string) {
 
 // ------------------------------------------------------------ geometry ----
 /** A macro-detail roasted bean: domed back, flat face, S-shaped crease with chaff. */
-function beanGeometry() {
-  const g = new THREE.SphereGeometry(0.5, 192, 144);
+function beanGeometry(detail = 1) {
+  const g = new THREE.SphereGeometry(0.5, Math.round(192 * detail), Math.round(144 * detail));
   const p = g.attributes.position;
   const colors = new Float32Array(p.count * 3);
   const v = new THREE.Vector3();
@@ -121,7 +132,8 @@ function beanGeometry() {
     x *= 1 + 0.035 * Math.sin(z * 9 + 1);
     p.setXYZ(i, x, y, z);
     // colour: dark roast with mottling; pale chaff caught in the crease
-    const mott = 0.5 + 0.5 * Math.sin(z * 37 + x * 23) * Math.cos(x * 31 - z * 13);
+    // gentle, irregular mottling (layered waves at unrelated angles, so no plaid grid)
+    const mott = 0.5 + 0.5 * (0.5 * Math.sin(z * 11.3 + 1.7) + 0.3 * Math.sin(x * 15.1 - z * 6.7 + 0.4) + 0.2 * Math.sin((x * 0.7 + z) * 23.9 + 2.1));
     base.setHSL(0.05 + mott * 0.012, 0.5, 0.028 + mott * 0.022);
     if (y > -0.05 && crease > 0.35) base.lerp(new THREE.Color(0x6e4a28), Math.min(1, (crease - 0.35) * 1.8) * (0.55 + 0.45 * Math.sin(z * 60)));
     colors.set([base.r, base.g, base.b], i * 3);
@@ -168,7 +180,7 @@ function bottleGeometry(points: [number, number][], scale: number, flat: number)
 export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   const mobile = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: mobile, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.6 : 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.35 : 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -213,7 +225,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   scene.add(haze);
 
   // ---------------------------------------------------------------- bean --
-  const wrinkles = wrinkleNormal();
+  const wrinkles = wrinkleNormal(mobile ? 512 : 1024);
   wrinkles.repeat.set(3, 2);
   const roughTex = new THREE.CanvasTexture(fbmCanvas(256, 5, 1));
   roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping;
@@ -228,15 +240,15 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     sheen: 0.25,
     sheenColor: new THREE.Color(0xa0602a),
   });
-  const bean = new THREE.Mesh(beanGeometry(), beanMat);
+  const bean = new THREE.Mesh(beanGeometry(mobile ? 0.6 : 1), beanMat);
   const beanPivot = new THREE.Group();
   beanPivot.add(bean);
   scene.add(beanPivot);
   bean.rotation.set(1.2, 0.25, 0.5); // crease side toward the camera
 
   // --------------------------------------------------------- the grounds --
-  const SHARDS = mobile ? 1100 : 3200;
-  const DUST = mobile ? 4000 : 14000;
+  const SHARDS = mobile ? 700 : 3200;
+  const DUST = mobile ? 2600 : 14000;
   const shardMat = new THREE.MeshPhysicalMaterial({ roughness: 0.7, roughnessMap: roughTex, clearcoat: 0.25, clearcoatRoughness: 0.5, normalMap: wrinkles, normalScale: new THREE.Vector2(0.8, 0.8), sheen: 0.3, sheenColor: new THREE.Color(0x7a4a22) });
   const shards = new THREE.InstancedMesh(shardGeometry(), shardMat, SHARDS);
   shards.frustumCulled = false;
@@ -341,7 +353,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   dustScene.add(dust);
 
   // ------------------------------------------------- water, then coffee --
-  const DROPS = mobile ? 260 : 600;
+  const DROPS = mobile ? 150 : 600;
   const dropMat = new THREE.MeshPhysicalMaterial({ transmission: 1, roughness: 0.02, thickness: 0.25, ior: 1.33, clearcoat: 1, envMapIntensity: 2.2 });
   const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 20, 14), dropMat, DROPS);
   drops.frustumCulled = false;
@@ -378,13 +390,13 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   scene.add(bottle);
   const glass = new THREE.Mesh(
     bottleGeometry(BOTTLE, BOTTLE_S * 2.05, 0.56),
-    new THREE.MeshPhysicalMaterial({ color: 0xd6f3dc, transmission: 1, roughness: 0.05, thickness: 0.3, ior: 1.5, attenuationColor: new THREE.Color(0x12863a), attenuationDistance: 0.7, clearcoat: 1, envMapIntensity: 1.6 }),
+    new THREE.MeshPhysicalMaterial({ color: 0xd6f3dc, transmission: 1, roughness: 0.09, thickness: 0.3, ior: 1.5, attenuationColor: new THREE.Color(0x12863a), attenuationDistance: 0.7, clearcoat: 0.6, clearcoatRoughness: 0.18, specularIntensity: 0.55, envMapIntensity: 0.75 }),
   );
   bottle.add(glass);
   const fillPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), BOTTLE_Y);
   const inside = new THREE.Mesh(
     bottleGeometry(BOTTLE.map(([r, y]) => [r * 0.92, Math.max(0.08, Math.min(y, 3.9))] as [number, number]), BOTTLE_S * 2.05, 0.56),
-    new THREE.MeshPhysicalMaterial({ color: 0x160a04, roughness: 0.15, clearcoat: 1, clippingPlanes: [fillPlane] }),
+    new THREE.MeshPhysicalMaterial({ color: 0x160a04, roughness: 0.22, clearcoat: 0.5, clearcoatRoughness: 0.25, clippingPlanes: [fillPlane] }),
   );
   bottle.add(inside);
   // the gold-foil label, wrapped round the front
@@ -395,31 +407,55 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     const geo = new THREE.CylinderGeometry(R, R, h, 96, 1, true, -span, span * 2);
     geo.scale(1, 1, 0.56);
     geo.translate(0, 0.42 + h / 2, 0);
-    bottle.add(new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: lab.map, metalnessMap: lab.metalnessMap, roughnessMap: lab.roughnessMap, metalness: 1, roughness: 1, clearcoat: 0.25, envMapIntensity: 1.6 })));
+    bottle.add(new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: lab.map, metalnessMap: lab.metalnessMap, roughnessMap: lab.roughnessMap, metalness: 1, roughness: 1, clearcoat: 0.15, clearcoatRoughness: 0.4, envMapIntensity: 0.9 })));
   });
   // studio lights for the bottle shot
-  const bottleKey = new THREE.SpotLight(0xffe4bd, 90, 20, 0.45, 0.7, 1.3);
-  bottleKey.position.set(-1.5, BOTTLE_Y + 9, 4);
+  // a big soft light from high above (wide cone, full penumbra) instead of a hard front key
+  const bottleKey = new THREE.SpotLight(0xffe4bd, 38, 22, 0.7, 1, 1.3);
+  bottleKey.position.set(-0.6, BOTTLE_Y + 10, 1.6);
   bottleKey.target.position.set(0, BOTTLE_Y + 2, 0);
-  const bottleRim = new THREE.SpotLight(0xffc88a, 120, 18, 0.55, 0.7, 1.3);
-  bottleRim.position.set(3, BOTTLE_Y + 4, -4);
-  bottleRim.target.position.set(0, BOTTLE_Y + 2, 0);
-  const bottleRim2 = new THREE.SpotLight(0xffe9c9, 70, 18, 0.55, 0.7, 1.3);
-  bottleRim2.position.set(-3.2, BOTTLE_Y + 3, -3.5);
-  bottleRim2.target.position.set(0, BOTTLE_Y + 2, 0);
-  scene.add(bottleKey, bottleKey.target, bottleRim, bottleRim.target, bottleRim2, bottleRim2.target);
+  // two tall strip softboxes behind the bottle, like a real product shoot:
+  // they draw clean vertical lines down the glass edges instead of point glare
+  RectAreaLightUniformsLib.init();
+  const strip = (x: number, colour: number, power: number) => {
+    const l = new THREE.RectAreaLight(colour, power, 0.35, 5.5);
+    l.position.set(x, BOTTLE_Y + 2, -2.6);
+    l.lookAt(0, BOTTLE_Y + 2, 0);
+    scene.add(l);
+    return l;
+  };
+  strip(2.3, 0xffd2a0, 5);
+  strip(-2.3, 0xffe9cc, 3.5);
+  scene.add(bottleKey, bottleKey.target);
   const backGlow = new THREE.Mesh(
     new THREE.CircleGeometry(4, 48),
     new THREE.MeshBasicMaterial({ map: softDisc("#3a2412"), transparent: true, depthWrite: false, fog: false }),
   );
   backGlow.position.set(0, BOTTLE_Y + 2.2, -5);
   scene.add(backGlow);
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.46 * BOTTLE_S * 2.05, 0.46 * BOTTLE_S * 2.05, 0.5, 64), new THREE.MeshStandardMaterial({ color: 0xd8dadd, metalness: 1, roughness: 0.28 }));
+  // a dark plinth the bottle stands on, with a soft contact shadow, so it is grounded rather than floating
+  const plinth = new THREE.Mesh(
+    new THREE.CircleGeometry(3.2, 64),
+    new THREE.MeshBasicMaterial({ map: softDisc("#000000"), transparent: true, opacity: 0.85, depthWrite: false }),
+  );
+  plinth.rotation.x = -Math.PI / 2;
+  plinth.position.set(0, BOTTLE_Y + 0.005, 0);
+  scene.add(plinth);
+  const rimLine = new THREE.Mesh(
+    new THREE.RingGeometry(2.2, 2.215, 128),
+    new THREE.MeshBasicMaterial({ color: 0x5a3a1e, transparent: true, opacity: 0.35, depthWrite: false }),
+  );
+  rimLine.rotation.x = -Math.PI / 2;
+  rimLine.position.set(0, BOTTLE_Y + 0.006, 0);
+  scene.add(rimLine);
+  // brushed, satin aluminium: reads as metal without a blinding highlight
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.46 * BOTTLE_S * 2.05, 0.46 * BOTTLE_S * 2.05, 0.5, 64), new THREE.MeshStandardMaterial({ color: 0xc9ccd0, metalness: 1, roughness: 0.48, envMapIntensity: 0.7 }));
   scene.add(cap);
 
   // ------------------------------------------------------------- post ----
   let composer: EffectComposer | null = null;
   let bokeh: BokehPass | null = null;
+  let bloom: UnrealBloomPass | null = null;
   if (!mobile) {
     composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType }));
     composer.addPass(new RenderPass(scene, camera));
@@ -429,7 +465,8 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     dustPass.clear = false;
     dustPass.clearDepth = true;
     composer.addPass(dustPass);
-    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.28, 0.5, 0.86));
+    bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.24, 0.45, 0.9);
+    composer.addPass(bloom);
     composer.addPass(new OutputPass());
   }
 
@@ -463,11 +500,15 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     drag.x = e.clientX;
     drag.y = e.clientY;
   };
-  const onUp = () => (drag.on = false);
+  const onUp = () => {
+    drag.on = false;
+    if (mobile) cursor.set(99, 99, 99);
+  };
   const onLeave = () => cursor.set(99, 99, 99);
   canvas.addEventListener("pointermove", onMove);
   canvas.addEventListener("pointerdown", onDown);
   window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
   canvas.addEventListener("pointerleave", onLeave);
 
   // --------------------------------------------------------- the story ---
@@ -512,9 +553,15 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     const cz = lerp(lerp(2.9, 2.2, smooth(0.08, 0.24, P)), 7.5, smooth(EXPLODE, 0.4, P));
     const cy = lerp(0.05, -0.3, smooth(0.4, 0.6, P));
     const down = smooth(0.74, 0.9, P);
-    camera.position.set(Math.sin(time * 0.15) * 0.12 * (1 - down) + ndc.x * 0.08, lerp(cy, BOTTLE_Y + 3.4, down), lerp(cz, camera.aspect < 0.8 ? 13 : 10.5, down));
+    camera.position.set(Math.sin(time * 0.15) * 0.12 * (1 - down) + ndc.x * 0.08, lerp(cy, BOTTLE_Y + 3.4, down), lerp(cz, camera.aspect < 0.8 ? 11.2 : 10.5, down));
     look.set(0, lerp(0, BOTTLE_Y + 2.3, down), 0);
     camera.lookAt(look);
+    key.intensity = 32 * (1 - down);
+    rim.intensity = 110 * (1 - down);
+    kicker.intensity = 6 * (1 - down);
+    cursorLight.intensity = (mobile ? 0 : 10) * (1 - down);
+    renderer.toneMappingExposure = lerp(1.1, 0.92, down);
+    if (bloom) bloom.strength = lerp(0.24, 0.05, down);
     focusTarget.set(0, lerp(0, lerp(0.2, STREAM_TOP - 0.3, sink), smooth(EXPLODE, 0.45, P)), 0);
     if (down > 0) focusTarget.lerp(tmpV.set(0, BOTTLE_Y + 2, 0.6), down);
     const focusDist = camera.position.distanceTo(focusTarget);
@@ -650,6 +697,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       canvas.removeEventListener("pointerleave", onLeave);
       scene.traverse((o) => {
         const mesh = o as THREE.Mesh;

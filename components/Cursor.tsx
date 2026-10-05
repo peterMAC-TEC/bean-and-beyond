@@ -46,8 +46,8 @@ export function Cursor() {
 
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 z-[9999]">
-      <div ref={ring} className="absolute left-0 top-0 -ml-4 -mt-4 h-8 w-8 rounded-full border border-gold/45" />
-      <div ref={dot} className="absolute left-0 top-0 -ml-[3px] -mt-[3px] h-1.5 w-1.5 rounded-full bg-glow" />
+      <div ref={ring} className="absolute left-0 top-0 -ml-4 -mt-4 h-8 w-8 rounded-full border border-gold/45 opacity-0" />
+      <div ref={dot} className="absolute left-0 top-0 -ml-[3px] -mt-[3px] h-1.5 w-1.5 rounded-full bg-glow opacity-0" />
     </div>
   );
 }
