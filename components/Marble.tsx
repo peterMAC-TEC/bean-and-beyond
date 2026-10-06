@@ -162,7 +162,17 @@ export function Marble() {
       io.observe(el);
       update();
     };
-    void start();
+    // start once the section is about a screen away, when the browser is idle
+    const idle = window.requestIdleCallback ?? ((f: () => void) => window.setTimeout(f, 1));
+    const near = new IntersectionObserver(
+      ([e]) => {
+        if (!e.isIntersecting) return;
+        near.disconnect();
+        idle(() => void start(), { timeout: 800 });
+      },
+      { rootMargin: "100% 0px" },
+    );
+    near.observe(el);
 
     raf = requestAnimationFrame(tick);
     update();
@@ -174,6 +184,7 @@ export function Marble() {
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
+      near.disconnect();
       io.disconnect();
       fluid?.dispose();
       window.removeEventListener("scroll", onScroll);

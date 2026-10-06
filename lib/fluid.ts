@@ -194,7 +194,7 @@ export function createFluid(canvas: HTMLCanvasElement, opts: FluidOptions = {}):
   const P = {
     velocityDissipation: opts.velocityDissipation ?? 0.22,
     dyeDissipation: opts.dyeDissipation ?? 0.025,
-    pressureIters: 24,
+    pressureIters: 18,
     curl: opts.curl ?? 30,
   };
   const extra: Record<string, Uniform> = {};

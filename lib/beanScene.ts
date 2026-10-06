@@ -215,7 +215,7 @@ function beanGeometry(detail = 1) {
 /** an irregular fragment of bean */
 function shardGeometry() {
   // a rough, rounded crumb (merged vertices so it shades smoothly, not faceted)
-  const g = mergeVertices(new THREE.IcosahedronGeometry(1, 2));
+  const g = mergeVertices(new THREE.IcosahedronGeometry(1, 1)); // crumbs are tiny on screen: 80 faces is plenty
   const p = g.attributes.position;
   const v = new THREE.Vector3();
   const seed = [Math.random() * 10, Math.random() * 10, Math.random() * 10];
@@ -249,7 +249,9 @@ function bottleGeometry(points: [number, number][], scale: number, flat: number)
 export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   const mobile = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: mobile, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.35 : 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.25 : 1.6));
+  // see-through glass and drops render the scene behind them again: do that at half size
+  (renderer as unknown as { transmissionResolutionScale: number }).transmissionResolutionScale = 0.5;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -318,8 +320,8 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   bean.rotation.set(1.2, 0.25, 0.5); // crease side toward the camera
 
   // --------------------------------------------------------- the grounds --
-  const SHARDS = mobile ? 700 : 3200;
-  const DUST = mobile ? 2600 : 14000;
+  const SHARDS = mobile ? 600 : 2400;
+  const DUST = mobile ? 2200 : 9000;
   const shardMat = new THREE.MeshPhysicalMaterial({ roughness: 0.7, roughnessMap: roughTex, clearcoat: 0.25, clearcoatRoughness: 0.5, normalMap: wrinkles, normalScale: new THREE.Vector2(0.8, 0.8), sheen: 0.3, sheenColor: new THREE.Color(0x7a4a22) });
   const shards = new THREE.InstancedMesh(shardGeometry(), shardMat, SHARDS);
   shards.frustumCulled = false;
@@ -405,8 +407,10 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
         vec4 mv = modelViewMatrix * vec4(pos, 1.0);
         float depth = -mv.z;
         float defocus = abs(depth - uFocus);
-        gl_PointSize = uPR * (2.2 + defocus * 7.0) * (6.0 / depth);
         vAlpha = uOpacity / (1.0 + defocus * defocus * 3.0);
+        // capped size, and specks too faint to see are not drawn at all: huge, nearly
+        // invisible blurred dots near the lens were the most expensive thing on screen
+        gl_PointSize = vAlpha < 0.012 ? 0.0 : min(uPR * (2.2 + defocus * 7.0) * (6.0 / depth), 34.0 * uPR);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
@@ -424,9 +428,9 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   dustScene.add(dust);
 
   // ------------------------------------------------- water, then coffee --
-  const DROPS = mobile ? 150 : 600;
+  const DROPS = mobile ? 120 : 420;
   const dropMat = new THREE.MeshPhysicalMaterial({ transmission: 1, roughness: 0.02, thickness: 0.25, ior: 1.33, clearcoat: 1, envMapIntensity: 2.2 });
-  const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 20, 14), dropMat, DROPS);
+  const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 14, 10), dropMat, DROPS);
   drops.frustumCulled = false;
   scene.add(drops);
   const dropP = Array.from({ length: DROPS }, () => ({ x: (Math.random() - 0.5) * 2.6, z: (Math.random() - 0.5) * 1.6, y0: 3 + Math.random() * 6, sp: 3.5 + Math.random() * 2.5, s: 0.02 + Math.pow(Math.random(), 2) * 0.05, a: Math.random() * Math.PI * 2 }));
@@ -594,13 +598,25 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     scene.add(l);
     return l;
   };
-  strip(2.3, 0xffd2a0, 5);
-  strip(-2.3, 0xffe9cc, 3.5);
+  const stripR = strip(2.3, 0xffd2a0, 5);
+  const stripL = strip(-2.3, 0xffe9cc, 3.5);
   const front = new THREE.RectAreaLight(0xffe6c8, 0.9, 4, 5);
   front.position.set(-2.2, BOTTLE_Y + 2.6, 6);
   front.lookAt(0, BOTTLE_Y + 1.6, 0);
   scene.add(front);
   scene.add(bottleKey, bottleKey.target);
+  // Every light costs work on every pixel, even at zero brightness, so each shot only
+  // switches on its own: the macro lights for the bean, the studio lights for the
+  // bottle, both only while the camera travels between them. (Shaders for all three
+  // combinations are compiled up front, so switching is instant.)
+  const lit = { bean: true, bottle: true };
+  const setLights = (bean: boolean, bottle: boolean) => {
+    lit.bean = bean;
+    lit.bottle = bottle;
+    key.visible = rim.visible = kicker.visible = bean;
+    cursorLight.visible = bean && !mobile;
+    bottleKey.visible = stripR.visible = stripL.visible = front.visible = bottle;
+  };
   // a soft light panel right behind the bottle: the empty glass glows green
   // through it, so you can watch the dark coffee rise as it fills
   const backPanel = new THREE.Mesh(
@@ -628,7 +644,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   let bokeh: BokehPass | null = null;
   let bloom: UnrealBloomPass | null = null;
   if (!mobile) {
-    composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType }));
+    composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: renderer.getPixelRatio() > 1.3 ? 2 : 4, type: THREE.HalfFloatType }));
     composer.addPass(new RenderPass(scene, camera));
     bokeh = new BokehPass(scene, camera, { focus: 3, aperture: 0.0035, maxblur: 0.009 });
     composer.addPass(bokeh);
@@ -744,6 +760,7 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     const cz = lerp(lerp(2.9, 2.2, smooth(0.08, 0.24, P)), 7.5, smooth(EXPLODE, 0.4, P));
     const cy = lerp(0.05, -0.3, smooth(0.4, 0.6, P));
     const down = smooth(0.7, 0.84, P); // arrive at the bottle before the coffee reaches it
+    if (lit.bean !== down < 0.98 || lit.bottle !== down > 0.02) setLights(down < 0.98, down > 0.02);
     camera.position.set(Math.sin(time * 0.15) * 0.12 * (1 - down) + ndc.x * 0.08, lerp(cy, BOTTLE_Y + 2.8, down), lerp(cz, camera.aspect < 0.8 ? 11.2 : 10.3, down));
     look.set(0, lerp(0, BOTTLE_Y + 2.3, down), 0);
     camera.lookAt(look);
@@ -757,7 +774,12 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     focusTarget.set(0, lerp(0, lerp(0.2, STREAM_TOP - 0.3, sink), smooth(EXPLODE, 0.45, P)), 0);
     if (down > 0) focusTarget.lerp(tmpV.set(0, BOTTLE_Y + 2, 0.6), down);
     const focusDist = camera.position.distanceTo(focusTarget);
-    if (bokeh) (bokeh.uniforms as Record<string, { value: number }>).focus.value = focusDist;
+    if (bokeh) {
+      // depth of field draws the whole scene a second time: keep it for the macro bean
+      // shot, where it matters and the scene is light, and switch it off for the burst
+      bokeh.enabled = P < EXPLODE + 0.01;
+      (bokeh.uniforms as Record<string, { value: number }>).focus.value = focusDist;
+    }
     dustMat.uniforms.uFocus.value = focusDist;
 
     // ---- the bean: turning, then squashed and shuddering, then gone
@@ -971,7 +993,12 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
     });
   showAll(scene);
   showAll(dustScene);
-  void Promise.all([renderer.compileAsync(scene, camera), renderer.compileAsync(dustScene, camera)])
+  const warmups = [renderer.compileAsync(dustScene, camera)];
+  for (const [b, t] of [[true, false], [true, true], [false, true]]) {
+    setLights(b, t);
+    warmups.push(renderer.compileAsync(scene, camera));
+  }
+  void Promise.all(warmups)
     .catch(() => {})
     .finally(() => {
       hidden.forEach((o) => (o.visible = false));
@@ -987,8 +1014,8 @@ export function createBeanScene(canvas: HTMLCanvasElement): BeanScene {
   const adapt = (raw: number) => {
     if (raw > 0.25) return; // tab was hidden or paused: not a real frame
     avg += (raw - avg) * 0.1;
-    slowFor = avg > 1 / 48 ? slowFor + raw : 0;
-    if (slowFor > 0.7 && pr > MIN_PR) {
+    slowFor = avg > 1 / 52 ? slowFor + raw : 0;
+    if (slowFor > 0.4 && pr > MIN_PR) {
       pr = Math.max(MIN_PR, pr * 0.82);
       renderer.setPixelRatio(pr);
       composer?.setPixelRatio(pr);

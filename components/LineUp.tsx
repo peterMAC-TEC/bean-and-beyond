@@ -43,7 +43,7 @@ export function LineUp() {
             >
               <div className="relative aspect-[4/4.4] overflow-hidden">
                 <FluidBottle variant="card" colours={COLOURS[f.id] ?? COLOURS.classic} layout={CARD_LAYOUT} autoPour className="absolute inset-0" />
-                <p className="mono pointer-events-none absolute left-4 top-4 rounded-sm border border-line bg-ink/60 px-2 py-1 text-muted backdrop-blur">
+                <p className="mono pointer-events-none absolute left-4 top-4 rounded-sm border border-line bg-ink/80 px-2 py-1 text-muted">
                   {String(i + 1).padStart(2, "0")} / {lineup.tags[i] ?? f.name}
                 </p>
                 <p className="mono pointer-events-none absolute right-4 top-4 rotate-[-4deg] border border-brick/70 px-2 py-1 text-[#e0604f]">0% ABV</p>

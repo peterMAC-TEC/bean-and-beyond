@@ -126,7 +126,7 @@ export function OrderDrawer() {
       {/* backdrop */}
       <div
         onClick={() => setOpen(false)}
-        className={`absolute inset-0 bg-ink/70 backdrop-blur-sm transition-opacity duration-500 ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
+        className={`absolute inset-0 bg-ink/75 transition-opacity duration-500 ${open ? "opacity-100 backdrop-blur-sm" : "pointer-events-none opacity-0"}`}
       />
 
       <aside

@@ -254,8 +254,8 @@ export function FluidBottle({ variant, colours, layout, autoPour, className = ""
       const card = variant === "card";
       try {
         fluid = createFluid(c, {
-          sim: card ? 96 : window.innerWidth < 768 ? 144 : 224,
-          dye: card ? 560 : window.innerWidth < 768 ? 900 : 1600,
+          sim: card ? 96 : window.innerWidth < 768 ? 128 : 176,
+          dye: card ? 560 : window.innerWidth < 768 ? 768 : 1280,
           curl: 28,
           velocityDissipation: 0.4,
           dyeDissipation: 0.004,
@@ -279,7 +279,20 @@ export function FluidBottle({ variant, colours, layout, autoPour, className = ""
       });
       io.observe(el);
     };
-    void start();
+    // the hero starts straight away; bottles further down wait until they are about
+    // a screen away (then start when the browser is idle), so they never compete with
+    // whatever you are looking at
+    const idle = window.requestIdleCallback ?? ((f: () => void) => window.setTimeout(f, 1));
+    const near = new IntersectionObserver(
+      ([e]) => {
+        if (!e.isIntersecting) return;
+        near.disconnect();
+        idle(() => void start(), { timeout: 800 });
+      },
+      { rootMargin: "100% 0px" },
+    );
+    if (variant === "hero") void start();
+    else near.observe(el);
 
     const ro = new ResizeObserver(place);
     ro.observe(el);
@@ -292,6 +305,7 @@ export function FluidBottle({ variant, colours, layout, autoPour, className = ""
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
+      near.disconnect();
       io.disconnect();
       ro.disconnect();
       fluid?.dispose();
@@ -315,7 +329,7 @@ export function FluidBottle({ variant, colours, layout, autoPour, className = ""
       <div ref={label} className={`pointer-events-none absolute ${still ? "left-1/2 top-[15%] h-[60%] w-[43%] -translate-x-1/2" : ""}`} style={{ filter: "drop-shadow(0 4px 10px rgba(0,0,0,.45))", opacity: still ? 1 : 0, transition: "opacity .7s" }}>
         <Label className="h-full w-full" />
         <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,0) 18%, rgba(255,250,235,.07) 38%, rgba(0,0,0,0) 58%, rgba(0,0,0,.6))" }} />
-        <div ref={glint} aria-hidden className="absolute inset-0 mix-blend-screen" />
+        <div ref={glint} aria-hidden className="absolute inset-0" />
       </div>
     </div>
   );

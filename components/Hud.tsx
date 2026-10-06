@@ -83,7 +83,7 @@ export function Hud() {
   return (
     <>
       {/* top bar */}
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-line bg-ink/70 backdrop-blur-md">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-line bg-ink/90">
         <div className="flex h-14 items-center justify-between px-4 sm:px-6">
           <a href="#bottle" className="flex flex-col leading-none">
             <span className="serif text-lg tracking-wide text-cream">BEAN &amp; BEYOND</span>
@@ -132,7 +132,7 @@ export function Hud() {
       </div>
 
       {/* bottom progress bar */}
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-ink/80 backdrop-blur-md">
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-ink/90">
         <div className="flex h-11 items-center gap-3 px-4 sm:h-9 sm:gap-4 sm:px-6">
           <span className="mono shrink-0 text-cream">
             {"// "}{String(Math.max(0, active) + 1).padStart(2, "0")} {current.label}

@@ -33,7 +33,7 @@ export function Buy() {
         {/* the bottle: live coffee you can tap, stir and tilt */}
         <div className="relative mx-auto aspect-[4/5] w-full max-w-[460px] overflow-hidden rounded-lg border border-line bg-panel">
           <FluidBottle variant="card" colours={COLOURS} layout={LAYOUT} autoPour className="absolute inset-0" />
-          <p className="mono pointer-events-none absolute left-4 top-4 rounded-sm border border-line bg-ink/60 px-2 py-1 text-muted backdrop-blur">Tap to pour · drag to tilt</p>
+          <p className="mono pointer-events-none absolute left-4 top-4 rounded-sm border border-line bg-ink/80 px-2 py-1 text-muted">Tap to pour · drag to tilt</p>
           <p className="mono pointer-events-none absolute right-4 top-4 rotate-[-4deg] border border-brick/70 px-2 py-1 text-[#e0604f]">0% ABV</p>
         </div>
 
