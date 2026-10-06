@@ -8,35 +8,35 @@
 export const UNBOX_IMAGES: Record<string, { src: string; ar: number }> = {
   p_kulhadTeal: { src: "/unboxing/p_kulhadTeal.jpg", ar: 0.871 },
   p_kulhadLav: { src: "/unboxing/p_kulhadLav.jpg", ar: 0.9032 },
-  p_coffeeArtisan: { src: "/unboxing/p_coffeeArtisan.jpg", ar: 0.8182 },
+  p_coffeeArtisan: { src: "/unboxing/p_coffeeArtisan.jpg", ar: 0.7619 },
   p_diya: { src: "/unboxing/p_diya.jpg", ar: 0.9516 },
-  p_card700: { src: "/unboxing/p_card700.jpg", ar: 1.4716 },
+  p_card700: { src: "/unboxing/p_card700.jpg", ar: 1.488 },
   p_mugCharcoal: { src: "/unboxing/p_mugCharcoal.jpg", ar: 1.0294 },
   p_mugCream: { src: "/unboxing/p_mugCream.jpg", ar: 1.0455 },
-  p_coffeeFestive: { src: "/unboxing/p_coffeeFestive.jpg", ar: 0.7955 },
+  p_coffeeFestive: { src: "/unboxing/p_coffeeFestive.jpg", ar: 0.7619 },
   p_choc: { src: "/unboxing/p_choc.jpg", ar: 0.9839 },
   p_card800: { src: "/unboxing/p_card800.jpg", ar: 1.2206 },
   p_press: { src: "/unboxing/p_press.jpg", ar: 0.698 },
   p_pressKnob: { src: "/unboxing/p_pressKnob.jpg", ar: 0.7598 },
   p_mugBlack: { src: "/unboxing/p_mugBlack.jpg", ar: 1.2247 },
-  p_pouchPremium: { src: "/unboxing/p_pouchPremium.jpg", ar: 1.12 },
+  p_pouchPremium: { src: "/unboxing/p_pouchPremium.jpg", ar: 0.7619 },
   p_mithai: { src: "/unboxing/p_mithai.jpg", ar: 0.7704 },
   p_nuts: { src: "/unboxing/p_nuts.jpg", ar: 1.3333 },
   p_guide: { src: "/unboxing/p_guide.jpg", ar: 1.0481 },
   p_travel: { src: "/unboxing/p_travel.jpg", ar: 0.4894 },
   p_mugRed: { src: "/unboxing/p_mugRed.jpg", ar: 0.8432 },
-  t_pouchArtisan: { src: "/unboxing/t_pouchArtisan.jpg", ar: 0.7578 },
-  t_pouchFestive: { src: "/unboxing/t_pouchFestive.jpg", ar: 0.7637 },
+  t_pouchArtisan: { src: "/unboxing/t_pouchArtisan.jpg", ar: 0.7619 },
+  t_pouchFestive: { src: "/unboxing/t_pouchFestive.jpg", ar: 0.7619 },
   t_choc: { src: "/unboxing/t_choc.jpg", ar: 0.9824 },
-  t_card700: { src: "/unboxing/t_card700.jpg", ar: 1.4861 },
+  t_card700: { src: "/unboxing/t_card700.jpg", ar: 1.488 },
   t_card800: { src: "/unboxing/t_card800.jpg", ar: 1.2188 },
-  t_pouchPremium: { src: "/unboxing/t_pouchPremium.jpg", ar: 1.0725 },
+  t_pouchPremium: { src: "/unboxing/t_pouchPremium.jpg", ar: 0.7619 },
   t_mithai: { src: "/unboxing/t_mithai.jpg", ar: 0.7302 },
   t_guide: { src: "/unboxing/t_guide.jpg", ar: 1.0326 },
 };
 
 /** product shots on white, shown whole in the details card (the others are crops of the styled box photos) */
-export const STUDIO_PHOTOS = new Set(["p_press", "p_pressKnob", "p_travel", "p_mugRed"]);
+export const STUDIO_PHOTOS = new Set(["p_press", "p_pressKnob", "p_travel", "p_mugRed", "p_coffeeArtisan", "p_coffeeFestive", "p_pouchPremium", "p_card700"]);
 
 export interface UnboxItem {
   name: string;
@@ -50,20 +50,20 @@ export interface UnboxItem {
 }
 
 export const UNBOX_ITEMS: Record<string, UnboxItem> = {
-  kulhadTeal: { name: "Speckled Kulhad Cup, Teal", photo: "p_kulhadTeal", desc: "A fluted stoneware kulhad with a speckled matte glaze, sized for cutting chai or a short black coffee.", facts: ["Fluted kulhad shape", "Matte speckled glaze", "Pairs with the lavender cup"], size: 0.85, rot: 0 },
-  kulhadLav: { name: "Speckled Kulhad Cup, Lavender", photo: "p_kulhadLav", desc: "The lavender half of the kulhad pair, with the same fluted body and speckled glaze.", facts: ["Fluted kulhad shape", "Matte speckled glaze", "Pairs with the teal cup"], size: 0.85, rot: 0 },
-  coffeeArtisan: { name: "Artisan Coffee", photo: "p_coffeeArtisan", desc: "Small-batch ground coffee with a rich aroma and a smooth finish.", facts: ["100% Arabica", "Ground", "50 g"], size: 1.0, rot: 0 },
+  kulhadTeal: { name: "Rice Husk Kulhad, Teal", photo: "p_kulhadTeal", desc: "A fluted kulhad made from rice husk, with the husk's natural flecks showing through a soft teal finish. Sized for cutting chai or a short black coffee.", facts: ["Rice husk", "Fluted kulhad shape", "Pairs with the lavender cup"], size: 0.85, rot: 0 },
+  kulhadLav: { name: "Rice Husk Kulhad, Lavender", photo: "p_kulhadLav", desc: "The lavender half of the pair: the same fluted rice husk kulhad, flecked with husk.", facts: ["Rice husk", "Fluted kulhad shape", "Pairs with the teal cup"], size: 0.85, rot: 0 },
+  coffeeArtisan: { name: "Artisan Coffee", photo: "p_coffeeArtisan", desc: "Small-batch ground coffee in our kraft stand-up bag, with a rich aroma and a smooth finish.", facts: ["100% Arabica", "Ground", "50 g bag"], size: 1.0, rot: 0 },
   diya: { name: "Hand-painted Terracotta Diya", photo: "p_diya", desc: "A clay diya painted sindoor red with gold leaf work. Light it on Diwali night.", facts: ["Terracotta", "Hand-painted", "Gold detailing"], size: 0.95, rot: -0.5 },
-  card700: { name: "Happy Diwali Card", photo: "p_card700", desc: "“May your home be filled with happiness, light and prosperity.”", facts: ["Printed greeting card", "Mandala and lantern artwork"], size: 0.95, rot: 0 },
+  card700: { name: "Thank You Card", photo: "p_card700", desc: "Our thank-you card: “Thank you, and a very happy Diwali.” Ivory, with gold mandala corners.", facts: ["Printed card", "Gold mandala corners"], size: 0.95, rot: 0 },
   mugCharcoal: { name: "Lidded Speckled Mug, Charcoal", photo: "p_mugCharcoal", desc: "A speckled ceramic mug with a matching lid that keeps coffee warm while you sit with family.", facts: ["Ceramic", "Matching lid", "Pairs with the cream mug"], size: 0.95, rot: -0.45 },
   mugCream: { name: "Lidded Speckled Mug, Cream", photo: "p_mugCream", desc: "The cream half of the mug duo, with the same textured glaze and matching lid.", facts: ["Ceramic", "Matching lid", "Pairs with the charcoal mug"], size: 0.95, rot: -0.45 },
-  coffeeFestive: { name: "Festive Blend Coffee", photo: "p_coffeeFestive", desc: "A premium festive blend that is smooth, rich and aromatic.", facts: ["100% Arabica", "50 g"], size: 1.0, rot: 0 },
+  coffeeFestive: { name: "Festive Blend Coffee", photo: "p_coffeeFestive", desc: "Our Diwali-edition blend, ground and packed in the kraft stand-up bag.", facts: ["Ground", "50 g bag"], size: 1.0, rot: 0 },
   choc: { name: "Coffee Chocolate", photo: "p_choc", desc: "Dark chocolate made with real coffee, for the sweet tooth in the family.", facts: ["Dark chocolate", "Real coffee", "40 g"], size: 0.85, rot: 0 },
   card800: { name: "A Brighter Tomorrow Card", photo: "p_card800", desc: "A Happy Diwali card with gold mandala corners and room for your wishes.", facts: ["Printed greeting card", "Mandala artwork"], size: 0.95, rot: 0 },
   press: { name: "AGARO French Press", photo: "p_press", desc: "A borosilicate glass carafe with a 4-part stainless steel filter. Brews café-style coffee at home.", facts: ["600 ml", "14 × 19 cm", "4-part steel filter"], size: 1.35, rot: -0.5 },
   pressKnob: { name: "AGARO French Press, Ball Knob", photo: "p_pressKnob", desc: "The same 600 ml AGARO press in a black sleeve with two oval windows onto the brew, topped with a ball knob.", facts: ["600 ml", "Ball knob", "Windowed sleeve"], size: 1.35, rot: -0.5 },
   mugBlack: { name: "Brew Something Bright Mug", photo: "p_mugBlack", desc: "A matte black mug with gold lettering, made for the first cup of Diwali morning.", facts: ["Matte black", "Gold lettering"], size: 0.95, rot: -0.3 },
-  pouchPremium: { name: "Premium Coffee Blend", photo: "p_pouchPremium", desc: "A kraft pouch of premium ground coffee to brew in the French press.", facts: ["Ground coffee", "Kraft pouch"], size: 1.0, rot: 0 },
+  pouchPremium: { name: "Premium Coffee Blend", photo: "p_pouchPremium", desc: "Premium ground coffee in our black-label kraft bag, made to brew in the French press.", facts: ["Ground coffee", "Kraft stand-up bag"], size: 1.0, rot: 0 },
   mithai: { name: "Kaju Katli Box", photo: "p_mithai", desc: "Classic cashew fudge in a red and gold sleeve.", facts: ["Mithai", "Gift sleeve"], size: 1.0, rot: 0 },
   nuts: { name: "Roasted Nuts Jar", photo: "p_nuts", desc: "A glass jar of roasted cashews and almonds with a gold lid.", facts: ["Glass jar", "Cashews and almonds"], size: 0.8, rot: 0 },
   guide: { name: "Your Diwali Brew Guide", photo: "p_guide", desc: "A step-by-step card for brewing your first French press coffee.", facts: ["Brew guide card", "4 simple steps"], size: 0.95, rot: 0 },

@@ -112,6 +112,26 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     t.repeat.set(...rep);
     return t;
   };
+  // rice husk: a matte colour with fine flecks of husk fibre through it
+  const husk = (base: string) => {
+    const t = canvasTex(512, 512, (g, w, h) => {
+      g.fillStyle = base;
+      g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 2600; i++) {
+        const dark = Math.random() < 0.3;
+        g.strokeStyle = dark ? `rgba(58,52,40,${rnd(0.18, 0.4)})` : `rgba(238,226,196,${rnd(0.22, 0.55)})`;
+        g.lineWidth = rnd(0.8, 1.6);
+        const x = rnd(0, w), y = rnd(0, h), a = rnd(0, 6.28), l = rnd(1.5, 5);
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+        g.stroke();
+      }
+    });
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(5, 2);
+    return t;
+  };
   let glowT: THREE.Texture | null = null;
   const glowTex = () =>
     (glowT ??= canvasTex(128, 128, (g, w) => {
@@ -148,7 +168,7 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     }
     g.computeVertexNormals();
     const grp = new THREE.Group();
-    grp.add(mesh(g, std({ map: speckle(color, "#f3eee4", [5, 1]), roughness: 0.85, side: THREE.DoubleSide })));
+    grp.add(mesh(g, std({ map: husk(color), roughness: 0.95, side: THREE.DoubleSide })));
     return grp;
   };
   const buildMug = ({ color, dot, lid = false, text = null }: { color: string; dot: string; lid?: boolean; text?: string[] | null }) => {
@@ -308,13 +328,24 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     grp.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.302, 0.302, 0.17, 32, 1, true, -0.55, 1.1), std({ map: lbl, roughness: 0.6 })), 0, 0.3, 0));
     return grp;
   };
+  // a kraft stand-up pouch: puffed in the middle, flat at the side seams and the heat-sealed top, wider at the gusset
   const buildPouch = (tex: string) => {
     const grp = new THREE.Group();
-    const h = 1.05, w = h * A[tex].ar;
+    const h = 1.05, w = h * A[tex].ar, d = 0.22;
+    const geo = new THREE.BoxGeometry(w, h, d, 16, 28, 1);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const u = p.getX(i) / (w / 2), v = (p.getY(i) + h / 2) / h;
+      const seam = 1 - Math.pow(Math.min(1, Math.abs(u)), 4);
+      const top = v > 0.9 ? 0.08 : v > 0.78 ? 0.08 + ((0.9 - v) / 0.12) * 0.92 : 1;
+      const gusset = v < 0.1 ? 1.2 : 1;
+      p.setZ(i, p.getZ(i) * Math.max(0.06, seam * top) * gusset);
+      p.setX(i, p.getX(i) * (1 + (v < 0.1 ? 0.03 : 0)));
+    }
+    geo.computeVertexNormals();
     const kraft = std({ color: 0xb48a5c, roughness: 0.9 });
-    const front = std({ map: photoTex(tex), roughness: 0.75 });
-    grp.add(at(mesh(new THREE.BoxGeometry(w, h, 0.14), [kraft, kraft, kraft, kraft, front, kraft]), 0, h / 2, 0));
-    grp.add(at(mesh(new THREE.BoxGeometry(w * 0.98, 0.035, 0.16), std({ color: 0x9c7449, roughness: 0.8 })), 0, h - 0.13, 0));
+    const front = std({ map: photoTex(tex), roughness: 0.78 });
+    grp.add(at(mesh(geo, [kraft, kraft, kraft, kraft, front, kraft]), 0, h / 2, 0));
     return grp;
   };
   const buildFlat = (tex: string, h: number, d: number, side: number) => {
@@ -595,7 +626,11 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     }
     const narrow = aspect < 0.9;
     view.wantDist = Math.max(halfW / ht, halfH / vt) + (narrow ? 1.2 : 2.2);
-    view.wantTarget.set(0, ty - (narrow ? (phase === "closed" || phase === "closing" ? 0.25 : 1.1) : 0), 0);
+    // phones and squarer windows: lift the scene clear of the caption and item chips at the bottom
+    const closedNow = phase === "closed" || phase === "closing";
+    const lift = narrow ? (closedNow ? 0.25 : 1.1) : aspect < 1.35 ? (closedNow ? 0.35 : 0.85) : 0;
+    view.wantTarget.set(0, ty - lift, 0);
+    if (!narrow && aspect < 1.35) view.wantDist *= 1.12;
   };
 
   const loadBox = (i: number) => {
