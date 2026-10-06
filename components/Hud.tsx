@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { usePathname } from "next/navigation";
 import { getMuted, setMuted, subscribeSound, play } from "@/lib/sound";
 import { site } from "@/content/site";
 import { openOrder } from "@/lib/order";
@@ -79,6 +80,9 @@ export function Hud() {
   }, []);
 
   const current = site.sections[Math.max(0, active)];
+  // the HUD maps the home page's sections; other pages (the 3D unboxing) bring their own chrome
+  const home = usePathname() === "/";
+  if (!home) return null;
 
   return (
     <>
