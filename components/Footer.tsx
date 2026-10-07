@@ -33,7 +33,7 @@ export function Footer() {
               <a href={contact.instagramUrl} target="_blank" rel="noopener noreferrer" className="hud text-lg text-cream hover:text-glow">@{contact.instagram} ↗</a>
             </p>
           </div>
-          <div className="rounded-sm bg-parch p-4 text-[#2a1d12]">
+          <div className="paper rounded-sm p-4 text-[#2a1d12]">
             <p className="text-sm font-extrabold text-brick">{warning.heading}</p>
             <p className="mt-1 text-xs leading-relaxed">{warning.lines.join(" ")}</p>
           </div>

@@ -72,7 +72,18 @@ vec3 background(vec2 uv){
     // card panel: dark leather-brown with a soft glow behind the bottle
     col = vec3(0.0065, 0.0048, 0.0034);
     col += uCaramel * 0.09 * exp(-dot(r - vec2(0.0, 0.5), r - vec2(0.0, 0.5)) * 3.5);
-    col *= 1.0 - 0.35 * smoothstep(0.0, -0.25, r.y);
+    // the back wall: a faint plaster mottle
+    col *= 0.9 + 0.1 * sin(r.x * 7.0 + sin(r.y * 5.0) * 2.0) * sin(r.y * 6.0 - r.x * 3.0);
+    if (r.y < 0.0) {
+      // a dark walnut bar top the bottle stands on: grain running across, tightening toward the back
+      float v = -r.y;
+      float lines = pow(v, 0.65) * 150.0 + 3.0 * sin(r.x * 5.0 + v * 18.0) + 1.5 * sin(r.x * 13.0 - v * 40.0);
+      float grain = 0.55 + 0.45 * sin(lines) * (0.6 + 0.4 * hash(vec2(floor(lines / 3.14159), 7.0)));
+      vec3 wood = mix(vec3(0.0075, 0.0042, 0.0024), vec3(0.019, 0.0105, 0.0055), grain);
+      wood += uCaramel * 0.11 * exp(-pow(r.x / 0.42, 2.0) - pow(v / 0.1, 2.0)); // the pool of light under the bottle
+      wood += vec3(0.05, 0.036, 0.022) * exp(-pow(v / 0.0035, 2.0)) * smoothstep(1.2, 0.0, abs(r.x)); // the far edge catching light
+      col = mix(col, wood, smoothstep(0.0, -0.006, r.y));
+    } else col *= 1.0 - 0.2 * exp(-r.y / 0.08); // the wall just above the counter sits in shadow
     return col;
   }
   // the bar: warm haze, a spotlight cone, a black polished counter

@@ -117,6 +117,65 @@ html.custom-cursor, html.custom-cursor * { cursor: none !important; }
   background: radial-gradient(ellipse 90% 80% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.6));
 }
 
+/* ---------- materials: real surfaces instead of flat colour ----------
+   Every panel gets a fine leather-and-paper grain with soft mottling, lit from above;
+   cards get a bevelled catch-light and layered shadows; gold buttons are foil. */
+:root {
+  --tex-panel: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 .9  0 0 0 0 .75  0 0 0 -.9 .62'/%3E%3C/filter%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.012' numOctaves='3' seed='9' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -.55 .3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23f)' opacity='.32'/%3E%3C/svg%3E");
+}
+/* paper fibres: fine and light, never enough to get in the way of print */
+:root {
+  --tex-fibre: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.08 .9' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45  0 0 0 0 .3  0 0 0 0 .12  0 0 0 -.5 .3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
+}
+.bg-panel, .bg-panel-2 {
+  background-image: linear-gradient(180deg, rgba(255, 236, 200, 0.035), transparent 40%, rgba(0, 0, 0, 0.16)), var(--tex-panel);
+  background-size: auto, 320px 320px;
+}
+.surface {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 232, 190, 0.075),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.55),
+    0 1px 1px rgba(0, 0, 0, 0.45),
+    0 16px 30px -12px rgba(0, 0, 0, 0.75),
+    0 44px 80px -34px rgba(0, 0, 0, 0.85);
+}
+/* gold foil: a bright top edge, a darker fold, a light sweep on hover */
+a.bg-glow, button.bg-glow {
+  position: relative; overflow: hidden; isolation: isolate;
+  background-image: linear-gradient(180deg, #f6dd92 0%, #e7c063 46%, #cf9f3e 54%, #e2b95a 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 251, 228, 0.8), inset 0 -1px 0 rgba(110, 72, 18, 0.55), 0 1px 0 rgba(0, 0, 0, 0.6), 0 10px 22px -8px rgba(233, 196, 106, 0.32), 0 14px 26px -10px rgba(0, 0, 0, 0.7);
+  text-shadow: 0 1px 0 rgba(255, 244, 210, 0.55);
+  transition: filter 0.3s, transform 0.3s, background-color 0.3s;
+}
+a.bg-glow::after, button.bg-glow::after {
+  content: ""; position: absolute; inset: -2px; z-index: -1; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 252, 235, 0.55) 50%, transparent 65%);
+  transform: translateX(-120%); transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+a.bg-glow:hover, button.bg-glow:hover { filter: brightness(1.07) saturate(1.05); }
+a.bg-glow:hover::after, button.bg-glow:hover::after { transform: translateX(120%); }
+a.bg-glow:active, button.bg-glow:active { transform: translateY(1px); }
+/* outline buttons: a faint inner glow, like engraved gold */
+.border-gold\/40, .border-gold\/50 { box-shadow: inset 0 0 18px rgba(233, 196, 106, 0.05); }
+
+/* warm bokeh: out-of-focus diya lights drifting behind a section */
+.bokeh { position: absolute; border-radius: 50%; pointer-events: none; mix-blend-mode: screen;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 196, 110, var(--a, .35)), rgba(255, 150, 60, calc(var(--a, .35) * .35)) 45%, transparent 70%);
+  animation: bokeh var(--t, 18s) ease-in-out infinite alternate; }
+@keyframes bokeh {
+  from { transform: translate3d(0, 0, 0) scale(1); opacity: .55; }
+  50% { opacity: 1; }
+  to { transform: translate3d(var(--dx, 30px), var(--dy, -24px), 0) scale(1.08); opacity: .7; }
+}
+/* printed parchment: paper fibres, darker worn edges, laid slightly askew with a real shadow */
+.paper {
+  background-color: var(--parch);
+  background-image: radial-gradient(ellipse 120% 100% at 50% 40%, transparent 60%, rgba(110, 72, 30, 0.22)), var(--tex-fibre);
+  background-size: auto, 180px 180px;
+  box-shadow: inset 0 0 0 1px rgba(120, 85, 40, 0.25), 0 2px 3px rgba(0, 0, 0, 0.5), 0 18px 30px -12px rgba(0, 0, 0, 0.7);
+  transform: rotate(-1.2deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

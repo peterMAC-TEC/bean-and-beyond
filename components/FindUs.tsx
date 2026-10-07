@@ -65,7 +65,7 @@ export function FindUs() {
 
         <div className="mt-10 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
           {/* countdown panel */}
-          <div className="brackets relative overflow-hidden rounded-lg border border-line bg-panel p-6 sm:p-10">
+          <div className="brackets surface relative overflow-hidden rounded-lg border border-line bg-panel p-6 sm:p-10">
             <div aria-hidden className="absolute inset-0 opacity-60" style={{ background: "radial-gradient(ellipse 60% 70% at 80% 0%, rgba(233,196,106,.12), transparent 70%)" }} />
             <p className="mono relative text-muted">
               <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-brick bb-blink" aria-hidden />
@@ -91,7 +91,7 @@ export function FindUs() {
           </div>
 
           {/* list */}
-          <div className="rounded-lg border border-line bg-panel-2 p-6">
+          <div className="surface rounded-lg border border-line bg-panel-2 p-6">
             <p className="mono text-muted">Schedule · {upcoming.length} upcoming</p>
             {upcoming.length === 0 ? (
               <p className="mono mt-6 text-muted/70">— no stalls on the board yet —</p>

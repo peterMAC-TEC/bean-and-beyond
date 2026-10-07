@@ -65,17 +65,78 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
   const sun = new THREE.DirectionalLight(0xffe0b5, 1.05 * PI);
   sun.position.set(3.5, 7, 4.5);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 20 });
   sun.shadow.bias = -0.0008;
   scene.add(sun);
   const rim = new THREE.PointLight(0xffa64d, 0.7 * PI, 14, 1);
   rim.position.set(-4, 2.5, 2);
   scene.add(rim);
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(60, 64), new THREE.MeshStandardMaterial({ color: 0x120e0b, roughness: 0.95 }));
+  // a dark walnut tabletop: planks with grain, seams and a satin finish that catches the light
+  const wood = document.createElement("canvas");
+  wood.width = wood.height = 1024;
+  {
+    const g = wood.getContext("2d")!;
+    const planks = 8, ph = 1024 / planks;
+    for (let p = 0; p < planks; p++) {
+      const y0 = p * ph;
+      const tone = 26 + Math.random() * 10;
+      g.fillStyle = `rgb(${tone}, ${tone * 0.62}, ${tone * 0.38})`;
+      g.fillRect(0, y0, 1024, ph);
+      // grain: long wavering lines along the plank, a few darker figure streaks
+      for (let i = 0; i < 70; i++) {
+        const y = y0 + Math.random() * ph, amp = 1 + Math.random() * 5, f = 0.004 + Math.random() * 0.01, ph0 = Math.random() * 6;
+        g.strokeStyle = Math.random() < 0.7 ? `rgba(8,4,2,${0.15 + Math.random() * 0.3})` : `rgba(90,58,34,${0.1 + Math.random() * 0.2})`;
+        g.lineWidth = 0.6 + Math.random() * 1.8;
+        g.beginPath();
+        for (let x = 0; x <= 1024; x += 16) g.lineTo(x, y + Math.sin(x * f + ph0) * amp);
+        g.stroke();
+      }
+      // a knot now and then
+      if (Math.random() < 0.5) {
+        const kx = Math.random() * 1024, ky = y0 + ph * (0.3 + Math.random() * 0.4);
+        for (let k = 6; k > 0; k--) {
+          g.strokeStyle = `rgba(10,5,2,${0.12 + k * 0.03})`;
+          g.beginPath();
+          g.ellipse(kx, ky, k * 9, k * 3, 0, 0, PI * 2);
+          g.stroke();
+        }
+      }
+      // the seam between planks
+      g.fillStyle = "rgba(0,0,0,.75)";
+      g.fillRect(0, y0, 1024, 2);
+      g.fillStyle = "rgba(120,80,45,.12)";
+      g.fillRect(0, y0 + 2, 1024, 1);
+    }
+  }
+  const woodTex = new THREE.CanvasTexture(wood);
+  woodTex.colorSpace = THREE.SRGBColorSpace;
+  woodTex.wrapS = woodTex.wrapT = THREE.RepeatWrapping;
+  woodTex.repeat.set(14, 14);
+  woodTex.anisotropy = 8;
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(60, 64), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.62, metalness: 0, envMapIntensity: 0.5 }));
   floor.rotation.x = -PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
+
+  // reflections: a soft, warm studio for gold, steel, glass and gloss to mirror (made once)
+  {
+    const studio = new THREE.Scene();
+    studio.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), new THREE.MeshBasicMaterial({ color: 0x0e0a07, side: THREE.BackSide })));
+    const panel = (w: number, h: number, color: number, x: number, y: number, z: number) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
+      m.position.set(x, y, z);
+      m.lookAt(0, 0, 0);
+      studio.add(m);
+    };
+    panel(8, 4, 0xfff1dc, 2, 7, 3); // the big softbox overhead
+    panel(1.2, 6, 0xffb46a, -6, 2, 2); // a warm strip light from the side
+    panel(3, 2, 0x6a5a48, 4, 1.5, -6); // a dim bounce behind
+    const pm = new THREE.PMREMGenerator(renderer);
+    scene.environment = pm.fromScene(studio, 0.04).texture;
+    scene.environmentIntensity = 0.55;
+    pm.dispose();
+  }
   // one flame light for the scene, always present (a light appearing mid-animation recompiles every material)
   const flameLight = new THREE.PointLight(0xff9a3c, 0, 2.4, 1);
   scene.add(flameLight);
@@ -910,6 +971,24 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     view.yaw = 0;
     frame();
     emit();
+    void warmUp(S);
+  };
+
+  // Every material is compiled in the background and drawn once while the box is still shut, with
+  // the pieces shrunk inside it (the walls and lid hide them), so the GPU never stalls when it opens.
+  const warmUp = async (mine: BoxState) => {
+    const hide = () => mine.items.forEach((p) => ((p.visible = false), p.position.set(0, 0, 0), p.scale.setScalar(1)));
+    mine.items.forEach((p) => ((p.visible = true), p.position.set(0, mine.box.H * 0.3, 0), p.scale.setScalar(0.25)));
+    try {
+      await renderer.compileAsync(scene, camera);
+    } catch {
+      /* drawing below compiles whatever is left */
+    }
+    // the box was swapped or opened meanwhile: open() and loadBox() have set the pieces themselves
+    if (S !== mine || phase !== "closed") return;
+    renderer.render(scene, camera);
+    hide();
+    frame();
   };
 
   const open = async () => {

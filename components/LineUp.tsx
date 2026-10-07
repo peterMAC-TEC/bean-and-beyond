@@ -39,7 +39,7 @@ export function LineUp() {
           {flavours.map((f, i) => (
             <article
               key={f.id}
-              className="group overflow-hidden rounded-lg border border-line bg-panel transition duration-500 hover:-translate-y-1 hover:border-gold/40"
+              className="group surface overflow-hidden rounded-lg border border-line bg-panel transition duration-500 hover:-translate-y-1 hover:border-gold/40"
             >
               <div className="relative aspect-[4/4.4] overflow-hidden">
                 <FluidBottle variant="card" colours={COLOURS[f.id] ?? COLOURS.classic} layout={CARD_LAYOUT} autoPour className="absolute inset-0" />
