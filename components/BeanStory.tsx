@@ -64,7 +64,15 @@ export function BeanStory() {
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(update);
     };
-    const io = new IntersectionObserver(([e]) => scene?.setRunning(e.isIntersecting), { rootMargin: "200px" });
+    // runs while on screen, and pauses behind the order panel (bb:lock) so the panel gets the GPU
+    let onScreen = false;
+    let locked = false;
+    const run = () => scene?.setRunning(onScreen && !locked);
+    const io = new IntersectionObserver(([e]) => ((onScreen = e.isIntersecting), run()), { rootMargin: "200px" });
+    const onLock = () => ((locked = true), run());
+    const onUnlock = () => ((locked = false), run());
+    window.addEventListener("bb:lock", onLock);
+    window.addEventListener("bb:unlock", onUnlock);
 
     const start = async () => {
       if (reduced) return;
@@ -106,6 +114,8 @@ export function BeanStory() {
       io.disconnect();
       scene?.dispose();
       pourLoop.stop();
+      window.removeEventListener("bb:lock", onLock);
+      window.removeEventListener("bb:unlock", onUnlock);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };

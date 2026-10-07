@@ -2,10 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createUnboxing, type UnboxApi, type UnboxView } from "@/lib/unboxing";
-import { STUDIO_PHOTOS, UNBOX_BOXES, UNBOX_IMAGES, UNBOX_ITEMS } from "@/content/unboxing";
+import { BUILD_BUDGET, BUILD_ITEMS, BUILD_MAX_PIECES, STUDIO_PHOTOS, UNBOX_BOXES, UNBOX_IMAGES, UNBOX_ITEMS } from "@/content/unboxing";
 import { site } from "@/content/site";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 import { play } from "@/lib/sound";
+
+const fmt = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+/** the box to start on: /unbox?box=brew */
+function initialBox() {
+  if (typeof window === "undefined") return 0;
+  const i = UNBOX_BOXES.findIndex((b) => b.id === new URLSearchParams(window.location.search).get("box"));
+  return i < 0 ? 0 : i;
+}
 
 /**
  * The /unbox page: a full-screen 3D gift box. Tap it (or the button) to untie the ribbon and lift the lid;
@@ -16,7 +24,10 @@ export default function Unboxing3D() {
   const canvas = useRef<HTMLCanvasElement>(null);
   const api = useRef<UnboxApi | null>(null);
   const reduced = useReducedMotion();
-  const [view, setView] = useState<UnboxView>({ phase: "closed", box: 0, focused: null });
+  const [start] = useState(initialBox);
+  const [view, setView] = useState<UnboxView>({ phase: "closed", box: start, focused: null, items: UNBOX_BOXES[start].items });
+  // Build your own: what's been picked (kept when switching tabs and back)
+  const [picked, setPicked] = useState<string[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -24,14 +35,14 @@ export default function Unboxing3D() {
     // the canvas labels use the site's display font, so wait for it before drawing them
     document.fonts.ready.then(() => {
       if (!alive || !canvas.current) return;
-      made = api.current = createUnboxing(canvas.current, setView, { reduced });
+      made = api.current = createUnboxing(canvas.current, setView, { reduced, box: start });
     });
     return () => {
       alive = false;
       made?.dispose();
       api.current = null;
     };
-  }, [reduced]);
+  }, [reduced, start]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && api.current?.unfocus();
@@ -40,12 +51,25 @@ export default function Unboxing3D() {
   }, []);
 
   const box = UNBOX_BOXES[view.box];
+  const building = box.id === "build";
   const busy = view.phase === "opening" || view.phase === "closing";
-  const focusedKey = view.focused != null ? box.items[view.focused] : null;
+  const focusedKey = view.focused != null ? view.items[view.focused] : null;
   const item = focusedKey ? UNBOX_ITEMS[focusedKey] : null;
+  const priced = picked.reduce((sum, k) => sum + (UNBOX_ITEMS[k].price ?? 0), 0);
+  const unpriced = picked.filter((k) => UNBOX_ITEMS[k].price == null).length;
+  const total = picked.length === 0 ? "Empty" : unpriced === picked.length ? "prices coming soon" : `${fmt(priced)}${unpriced ? " + more" : ""}`;
   const wa = `https://wa.me/${site.contact.whatsapp}?text=${encodeURIComponent(
-    box.id === "all" ? "Hi Bean & Beyond! I'd like to build my own Diwali gift box." : `Hi Bean & Beyond! I'd like the ${box.name} (${box.price}) for Diwali.`,
+    building
+      ? `Hi Bean & Beyond! I'd like to build my own Diwali gift box with: ${picked.map((k) => UNBOX_ITEMS[k].name).join(", ") || "(still choosing)"}.`
+      : `Hi Bean & Beyond! I'd like the ${box.name} (${box.price}) for Diwali.`,
   )}`;
+  const toggle = (k: string) => {
+    if (busy) return;
+    const next = picked.includes(k) ? picked.filter((x) => x !== k) : [...picked, k];
+    play("clink");
+    setPicked(next);
+    api.current?.setItems(next);
+  };
 
   return (
     <main className="relative h-[100svh] overflow-hidden bg-ink" style={{ background: "radial-gradient(120% 80% at 50% 35%, #231b15 0%, var(--ink) 65%)" }}>
@@ -70,7 +94,7 @@ export default function Unboxing3D() {
           <span className="serif text-lg tracking-wide text-cream">BEAN &amp; BEYOND</span>
           <span className="mono mt-1 !text-[8px] text-muted">← Back to the bottle</span>
         </a>
-        <div role="tablist" aria-label="Choose a gift box" className="pointer-events-auto flex max-w-full gap-1 overflow-x-auto rounded-full border border-line bg-ink/60 p-1 backdrop-blur [scrollbar-width:none]">
+        <div role="tablist" aria-label="Choose a gift box" className="pointer-events-auto flex max-w-full flex-wrap justify-end gap-1 rounded-3xl border border-line bg-ink/60 p-1 backdrop-blur">
           {UNBOX_BOXES.map((b, i) => (
             <button
               key={b.id}
@@ -80,14 +104,15 @@ export default function Unboxing3D() {
               disabled={busy}
               onClick={() => {
                 play("clink");
-                api.current?.loadBox(i);
+                api.current?.loadBox(i, b.id === "build" ? picked : undefined);
               }}
               className={`hud shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-[14px] transition-colors ${
-                i === view.box ? "bg-gold text-ink" : "text-muted hover:text-cream"
+                i === view.box ? "bg-gold text-ink" : b.id === "build" ? "border border-dashed border-glow/70 text-glow hover:bg-glow/10" : "text-muted hover:text-cream"
               }`}
             >
+              {b.id === "build" && <span aria-hidden className="mr-1.5">+</span>}
               {b.name}
-              <span className={`ml-2 tabular-nums ${i === view.box ? "text-ink" : "text-glow"}`}>{b.price}</span>
+              {b.price && <span className={`ml-2 tabular-nums ${i === view.box ? "text-ink" : "text-glow"}`}>{b.price}</span>}
             </button>
           ))}
         </div>
@@ -104,7 +129,7 @@ export default function Unboxing3D() {
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={UNBOX_IMAGES[item.photo].src} alt={`Photo of the ${item.name}`} className={`hidden aspect-[4/3] w-full rounded-md bg-white sm:block ${STUDIO_PHOTOS.has(item.photo) ? "object-contain p-2" : "object-cover"}`} />
-          <p className="mono mt-3 text-gold">In the {box.id === "all" ? "Bean & Beyond range" : box.name}</p>
+          <p className="mono mt-3 text-gold">{building ? (item.price != null ? `On its own · ${fmt(item.price)}` : "On its own") : `In the ${box.name}`}</p>
           <h2 className="serif mt-1 text-2xl text-cream">{item.name}</h2>
           <p className="mt-2 text-[16px] leading-snug text-cream/75">{item.desc}</p>
           <ul className="mt-3 flex flex-wrap gap-2">
@@ -123,7 +148,7 @@ export default function Unboxing3D() {
           <p className="mono text-glow">Diwali gift box · 2026</p>
           <h1 className="serif mt-1 text-[clamp(28px,4.4vw,48px)] leading-none text-cream">{box.name}</h1>
           <p className="hud mt-2 text-[15px] text-muted">
-            {box.price} · {box.items.length} pieces ·{" "}
+            {building ? total : box.price} · {view.items.length} {view.items.length === 1 ? "piece" : "pieces"} ·{" "}
             <a href={wa} target="_blank" rel="noopener noreferrer" className="pointer-events-auto text-gold underline-offset-4 hover:text-glow hover:underline">
               Order on WhatsApp ↗
             </a>
@@ -132,7 +157,7 @@ export default function Unboxing3D() {
         <div className="flex max-w-full flex-col items-end gap-3">
           {view.phase === "open" && (
             <div className="pointer-events-auto flex max-w-[640px] flex-wrap justify-end gap-2">
-              {box.items.map((k, i) => (
+              {view.items.map((k, i) => (
                 <button
                   key={k + i}
                   type="button"
@@ -145,6 +170,40 @@ export default function Unboxing3D() {
                   {UNBOX_ITEMS[k].name}
                 </button>
               ))}
+            </div>
+          )}
+          {building && (
+            <div className="pointer-events-auto w-full max-w-[min(760px,calc(100vw-32px))]">
+              <p className="hud mb-2 text-right text-[13px] text-muted">
+                Tap a piece to put it in · tap again to take it out · up to {BUILD_MAX_PIECES}
+              </p>
+              <ul className="flex justify-start gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] sm:flex-wrap sm:justify-end sm:overflow-visible">
+                {BUILD_ITEMS.map((k) => {
+                  const it = UNBOX_ITEMS[k];
+                  const on = picked.includes(k);
+                  const full = !on && picked.length >= BUILD_MAX_PIECES;
+                  const over = !on && it.price != null && priced + it.price > BUILD_BUDGET;
+                  return (
+                    <li key={k} className="shrink-0">
+                      <button
+                        type="button"
+                        aria-pressed={on}
+                        aria-label={`${it.name}${on ? ", in your box" : ""}`}
+                        title={over ? `This would take your box over ${fmt(BUILD_BUDGET)}.` : full ? `A box holds up to ${BUILD_MAX_PIECES} pieces.` : it.name}
+                        disabled={busy || full || over}
+                        onClick={() => toggle(k)}
+                        className={`relative block h-[60px] w-[60px] overflow-hidden rounded-lg border-2 bg-white transition disabled:opacity-35 ${on ? "border-glow" : "border-transparent hover:border-gold"}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={UNBOX_IMAGES[it.photo].src} alt="" className={`h-full w-full ${STUDIO_PHOTOS.has(it.photo) ? "object-contain p-1" : "object-cover"}`} />
+                        <span aria-hidden className={`absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full text-[12px] shadow ${on ? "bg-glow text-ink" : "bg-ink/85 text-gold"}`}>
+                          {on ? "✓" : "+"}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
           <p className="hud text-[14px] text-muted">

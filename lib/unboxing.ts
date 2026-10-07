@@ -17,9 +17,14 @@ export interface UnboxView {
   phase: UnboxPhase;
   box: number;
   focused: number | null;
+  /** the item keys in the box now (Build your own changes) */
+  items: string[];
 }
 export interface UnboxApi {
-  loadBox(i: number): void;
+  /** load box i; `items` sets its contents (Build your own) */
+  loadBox(i: number, items?: string[]): void;
+  /** change what's in the box. Open: new pieces rise out of it, removed ones sink back in. Closed: just repacked. */
+  setItems(items: string[]): void;
   open(): void;
   close(): void;
   focus(k: number): void;
@@ -38,7 +43,7 @@ const ease = {
   },
 };
 
-export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxView) => void, opts: { reduced?: boolean } = {}): UnboxApi {
+export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxView) => void, opts: { reduced?: boolean; box?: number } = {}): UnboxApi {
   const REDUCE = !!opts.reduced;
   const fontVar = getComputedStyle(document.documentElement).getPropertyValue("--font-display").trim() || "Georgia, serif";
 
@@ -113,15 +118,26 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     return t;
   };
   // rice husk: a matte colour with fine flecks of husk fibre through it
-  const husk = (base: string) => {
+  // (fine: short flecks with soft mottling, for the mugs, whose texture is laid on evenly)
+  const husk = (base: string, rep: [number, number] = [5, 2], fine = false) => {
     const t = canvasTex(512, 512, (g, w, h) => {
       g.fillStyle = base;
       g.fillRect(0, 0, w, h);
-      for (let i = 0; i < 2600; i++) {
+      if (fine) {
+        for (let i = 0; i < 40; i++) {
+          const x = rnd(0, w), y = rnd(0, h), r = rnd(30, 90);
+          const m = g.createRadialGradient(x, y, 0, x, y, r);
+          m.addColorStop(0, Math.random() < 0.5 ? "rgba(255,245,225,.05)" : "rgba(0,0,0,.08)");
+          m.addColorStop(1, "rgba(0,0,0,0)");
+          g.fillStyle = m;
+          g.fillRect(0, 0, w, h);
+        }
+      }
+      for (let i = 0; i < (fine ? 5200 : 2600); i++) {
         const dark = Math.random() < 0.3;
         g.strokeStyle = dark ? `rgba(58,52,40,${rnd(0.18, 0.4)})` : `rgba(238,226,196,${rnd(0.22, 0.55)})`;
         g.lineWidth = rnd(0.8, 1.6);
-        const x = rnd(0, w), y = rnd(0, h), a = rnd(0, 6.28), l = rnd(1.5, 5);
+        const x = rnd(0, w), y = rnd(0, h), a = rnd(0, 6.28), l = fine ? rnd(0.8, 2.6) : rnd(1.5, 5);
         g.beginPath();
         g.moveTo(x, y);
         g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
@@ -129,7 +145,7 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
       }
     });
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(5, 2);
+    t.repeat.set(...rep);
     return t;
   };
   let glowT: THREE.Texture | null = null;
@@ -171,9 +187,10 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     grp.add(mesh(g, std({ map: husk(color), roughness: 0.95, side: THREE.DoubleSide })));
     return grp;
   };
-  const buildMug = ({ color, dot, lid = false, text = null }: { color: string; dot: string; lid?: boolean; text?: string[] | null }) => {
+  const buildMug = ({ color, dot, lid = false, text = null, rice = false }: { color: string; dot: string; lid?: boolean; text?: string[] | null; rice?: boolean }) => {
     const grp = new THREE.Group();
-    const mat = std({ map: speckle(color, dot), roughness: 0.85, side: THREE.DoubleSide });
+    // rice husk mugs are matte all over, with the husk fibres flecked through them
+    const mat = rice ? std({ map: husk(color, [4, 4.5], true), roughness: 0.93, side: THREE.DoubleSide }) : std({ map: speckle(color, dot), roughness: 0.85, side: THREE.DoubleSide });
     grp.add(mesh(lathe([[0, 0], [0.31, 0], [0.34, 0.03], [0.38, 0.84], [0.385, 0.86], [0.36, 0.86], [0.33, 0.08], [0, 0.08]]), mat));
     const h = mesh(new THREE.TorusGeometry(0.21, 0.055, 14, 32, PI), mat);
     h.rotation.z = -PI / 2;
@@ -197,7 +214,7 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     }
     return grp;
   };
-  // Borosil insulated travel mug: matte charcoal, a slight flare, a flip lid with a front push latch
+  // the insulated thermos: matte charcoal, a slight flare, a flip lid with a front push latch
   const buildTravel = () => {
     const grp = new THREE.Group();
     const body = std({ color: 0x232427, roughness: 0.55, metalness: 0.25 });
@@ -295,37 +312,227 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     grp.add(at(h, 0.36, 0.55, 0));
     return grp;
   };
+  /* ── the dry fruits jar: real cashew and almond shapes packed in heavy glass, a knurled gold lid, jute and a label ── */
+  // almond skin: warm brown with fine wrinkles running tip to base, and pores
+  let almondT: THREE.Texture | null = null;
+  const almondTex = () =>
+    (almondT ??= canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = "#86542d";
+      g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 900; i++) {
+        const x = rnd(0, w), y = rnd(0, h), l = rnd(8, 40);
+        g.strokeStyle = Math.random() < 0.5 ? `rgba(60,32,14,${rnd(0.25, 0.6)})` : `rgba(176,120,72,${rnd(0.2, 0.5)})`;
+        g.lineWidth = rnd(0.6, 1.8);
+        g.beginPath();
+        g.moveTo(x, y);
+        g.quadraticCurveTo(x + rnd(-3, 3), y + l / 2, x + rnd(-2, 2), y + l);
+        g.stroke();
+      }
+      for (let i = 0; i < 500; i++) {
+        g.fillStyle = `rgba(48,24,10,${rnd(0.2, 0.5)})`;
+        g.fillRect(rnd(0, w), rnd(0, h), 1.2, 1.2);
+      }
+    }));
+  // roasted cashew: ivory gold, toasted patches, a few dark specks
+  let cashewT: THREE.Texture | null = null;
+  const cashewTex = () =>
+    (cashewT ??= canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = "#ecd2a0";
+      g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 70; i++) {
+        const r = g.createRadialGradient(rnd(0, w), rnd(0, h), 0, rnd(0, w), rnd(0, h), rnd(20, 70));
+        r.addColorStop(0, `rgba(196,132,62,${rnd(0.12, 0.3)})`);
+        r.addColorStop(1, "rgba(196,132,62,0)");
+        g.fillStyle = r;
+        g.fillRect(0, 0, w, h);
+      }
+      for (let i = 0; i < 260; i++) {
+        g.fillStyle = `rgba(120,72,30,${rnd(0.15, 0.45)})`;
+        g.beginPath();
+        g.arc(rnd(0, w), rnd(0, h), rnd(0.4, 1.3), 0, 7);
+        g.fill();
+      }
+    }));
+  // whole almond: a flattened teardrop, pointed at the tip (length along y)
+  const almondGeo = () => {
+    const geo = new THREE.SphereGeometry(1, 22, 16);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      let x = p.getX(i), z = p.getZ(i);
+      const t = Math.pow(Math.max(0, y), 1.3);
+      x *= 1 - 0.55 * t;
+      z *= 1 - 0.45 * t;
+      x += 0.06 * y * y; // a slight curve, like a real one
+      p.setXYZ(i, x * 0.05, y * 0.085, z * 0.03);
+    }
+    geo.computeVertexNormals();
+    return geo;
+  };
+  // cashew: a plump crescent, fuller at one end, bent round a centre
+  const cashewGeo = () => {
+    const geo = new THREE.SphereGeometry(1, 26, 16);
+    const p = geo.attributes.position;
+    const R = 0.062;
+    for (let i = 0; i < p.count; i++) {
+      const x0 = p.getX(i), y0 = p.getY(i), z0 = p.getZ(i);
+      const fat = 1 - 0.22 * Math.max(0, y0) + 0.06 * Math.max(0, -y0);
+      const x = x0 * 0.038 * fat, z = z0 * 0.036 * fat, y = y0 * 0.078;
+      const a = y / R;
+      p.setXYZ(i, R - (R + x) * Math.cos(a), (R + x) * Math.sin(a), z);
+    }
+    geo.computeVertexNormals();
+    return geo;
+  };
   const buildJar = () => {
     const grp = new THREE.Group();
-    const glass = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
-    const g = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.58, 40, 1, true), glass);
-    g.renderOrder = 2;
-    grp.add(at(g, 0, 0.29, 0));
-    grp.add(at(mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.1, 40), std({ color: 0xc9a24a, metalness: 0.85, roughness: 0.3 })), 0, 0.63, 0));
-    const inst = new THREE.InstancedMesh(new THREE.SphereGeometry(0.055, 10, 8), std({ roughness: 0.6 }), 80);
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), c = new THREE.Color();
-    const cols = ["#c58b4f", "#a5683a", "#e2c08a", "#8a5229", "#d7a76a"];
-    for (let i = 0; i < 80; i++) {
-      const r = Math.sqrt(Math.random()) * 0.24, a = rnd(0, 6.28);
-      q.setFromEuler(e.set(rnd(0, 3), rnd(0, 3), rnd(0, 3)));
-      m4.compose(new THREE.Vector3(Math.cos(a) * r, rnd(0.06, 0.5), Math.sin(a) * r), q, new THREE.Vector3(1.4, 0.8, 0.9));
-      inst.setMatrixAt(i, m4);
-      inst.setColorAt(i, c.set(cols[i % cols.length]));
+    const H = 0.6, R = 0.3;
+    // heavy glass: a lathed jar with a rounded base and a short threaded neck, a thick tinted bottom
+    const glass = new THREE.MeshPhysicalMaterial({ color: 0xf4fbf8, transparent: true, opacity: 0.15, roughness: 0.04, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
+    const jar = new THREE.Mesh(
+      lathe([[0, 0.002], [R - 0.05, 0], [R - 0.012, 0.012], [R, 0.05], [R, H - 0.06], [R - 0.012, H - 0.025], [R - 0.03, H - 0.012], [R - 0.03, H + 0.02]], 64),
+      glass,
+    );
+    jar.renderOrder = 2;
+    grp.add(jar);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.02, R - 0.05, 0.035, 48), new THREE.MeshPhysicalMaterial({ color: 0xcfe5dc, transparent: true, opacity: 0.32, roughness: 0.08, depthWrite: false }));
+    base.renderOrder = 2;
+    grp.add(at(base, 0, 0.018, 0));
+    // light catching the glass: two soft vertical streaks and a bright edge
+    const streak = canvasTex(256, 64, (g, w, h) => {
+      g.clearRect(0, 0, w, h);
+      for (const [cx, wd, a] of [[0.3, 0.05, 0.55], [0.38, 0.015, 0.8], [0.72, 0.03, 0.3]] as const) {
+        const lg = g.createLinearGradient(w * (cx - wd), 0, w * (cx + wd), 0);
+        lg.addColorStop(0, "rgba(255,255,255,0)");
+        lg.addColorStop(0.5, `rgba(255,250,240,${a})`);
+        lg.addColorStop(1, "rgba(255,255,255,0)");
+        g.fillStyle = lg;
+        g.fillRect(0, 0, w, h);
+      }
+    });
+    const shine = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.002, R + 0.002, H - 0.12, 48, 1, true, -1.2, 2.4), new THREE.MeshBasicMaterial({ map: streak, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.55 }));
+    shine.renderOrder = 3;
+    grp.add(at(shine, 0, H / 2, 0));
+
+    // the fill: almonds and cashews packed to just under the shoulder, heaped a little in the middle
+    const almonds = new THREE.InstancedMesh(almondGeo(), std({ map: almondTex(), bumpMap: almondTex(), bumpScale: 0.6, roughness: 0.78 }), 70);
+    const cashews = new THREE.InstancedMesh(cashewGeo(), std({ map: cashewTex(), roughness: 0.48 }), 80);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), c = new THREE.Color(), s = new THREE.Vector3(1, 1, 1);
+    const placed: THREE.Vector3[] = [];
+    const inner = R - 0.055;
+    let na = 0, nc = 0;
+    for (let tries = 0; tries < 4000 && (na < 70 || nc < 80); tries++) {
+      const r = Math.sqrt(Math.random()) * inner, a = rnd(0, PI * 2);
+      const top = H - 0.11 + 0.035 * (1 - r / inner);
+      const v = new THREE.Vector3(Math.cos(a) * r, rnd(0.05, top), Math.sin(a) * r);
+      if (placed.some((o) => o.distanceToSquared(v) < 0.058 * 0.058)) continue;
+      const cashew = (nc < 80 && Math.random() < 0.55) || na >= 70;
+      q.setFromEuler(e.set(rnd(0, PI * 2), rnd(0, PI * 2), rnd(0, PI * 2)));
+      const k = rnd(0.88, 1.12);
+      m4.compose(v, q, s.set(k, k, k));
+      if (cashew) {
+        cashews.setMatrixAt(nc, m4);
+        cashews.setColorAt(nc++, c.setHSL(rnd(0.085, 0.105), rnd(0.45, 0.7), rnd(0.6, 0.76)));
+      } else {
+        almonds.setMatrixAt(na, m4);
+        almonds.setColorAt(na++, c.setHSL(rnd(0.06, 0.08), rnd(0.25, 0.45), rnd(0.62, 0.8)));
+      }
+      placed.push(v);
     }
-    inst.castShadow = true;
-    grp.add(inst);
-    const lbl = canvasTex(256, 160, (g2, w, h) => {
-      g2.fillStyle = "#16120f";
+    almonds.count = na;
+    cashews.count = nc;
+    for (const m of [almonds, cashews]) {
+      m.castShadow = true;
+      m.receiveShadow = true;
+      grp.add(m);
+    }
+
+    // knurled gold lid with a domed top
+    const gold = std({ color: 0xdcb15a, metalness: 0.8, roughness: 0.24 });
+    const lidGeo = new THREE.CylinderGeometry(R + 0.012, R + 0.012, 0.1, 96, 1);
+    const lp = lidGeo.attributes.position;
+    for (let i = 0; i < lp.count; i++) {
+      const x = lp.getX(i), z = lp.getZ(i), rr = Math.hypot(x, z);
+      if (rr < R) continue;
+      const k = 1 + 0.012 * Math.cos(Math.atan2(z, x) * 96);
+      lp.setX(i, x * k);
+      lp.setZ(i, z * k);
+    }
+    lidGeo.computeVertexNormals();
+    grp.add(at(mesh(lidGeo, gold), 0, H + 0.035, 0));
+    const dome = mesh(new THREE.SphereGeometry(R + 0.012, 48, 8, 0, PI * 2, 0, 0.32), gold);
+    dome.scale.set(1, 0.18, 1);
+    grp.add(at(dome, 0, H + 0.07, 0));
+    const bead = mesh(new THREE.TorusGeometry(R + 0.011, 0.008, 8, 64), gold);
+    bead.rotation.x = PI / 2;
+    grp.add(at(bead, 0, H - 0.013, 0));
+
+    // jute twine round the neck, a bow, and a little kraft tag
+    const jute = canvasTex(128, 32, (g, w, h) => {
+      g.fillStyle = "#a9844e";
+      g.fillRect(0, 0, w, h);
+      for (let x = -h; x < w; x += 6) {
+        g.strokeStyle = "rgba(70,48,20,.55)";
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(x, h);
+        g.lineTo(x + h, 0);
+        g.stroke();
+      }
+    });
+    jute.wrapS = THREE.RepeatWrapping;
+    jute.repeat.set(14, 1);
+    const twine = std({ map: jute, roughness: 0.95 });
+    // (round the shoulder, just under the lid, where it shows)
+    for (const [y, rr] of [[H - 0.056, R + 0.006], [H - 0.04, R + 0.001]]) {
+      const t = mesh(new THREE.TorusGeometry(rr, 0.0075, 6, 72), twine);
+      t.rotation.x = PI / 2;
+      grp.add(at(t, 0, y, 0));
+    }
+    const bow = new THREE.Group();
+    for (const sgn of [-1, 1]) {
+      const loop = mesh(new THREE.TorusGeometry(0.035, 0.0065, 6, 24), twine);
+      loop.scale.set(1.3, 0.75, 1);
+      loop.rotation.z = sgn * 0.5;
+      bow.add(at(loop, sgn * 0.04, 0.008, 0));
+      const tail = mesh(new THREE.CylinderGeometry(0.0065, 0.0065, 0.11, 6), twine);
+      tail.rotation.z = sgn * 0.35;
+      bow.add(at(tail, sgn * 0.022, -0.05, 0.004));
+    }
+    grp.add(at(bow, 0, H - 0.046, R + 0.012));
+    const tagT = canvasTex(160, 100, (g, w, h) => {
+      g.fillStyle = "#c79f6a";
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = "rgba(90,60,25,.25)";
+      for (let i = 0; i < 300; i++) g.fillRect(rnd(0, w), rnd(0, h), 1.5, 1.5);
+      g.fillStyle = "#3a2410";
+      g.textAlign = "center";
+      g.font = `italic 600 30px ${fontVar}`;
+      g.fillText("Dry Fruits", w / 2, 50);
+      g.font = `500 15px ${fontVar}`;
+      g.fillText("HAPPY DIWALI", w / 2, 78);
+    });
+    const tag = mesh(new THREE.BoxGeometry(0.12, 0.075, 0.003), std({ map: tagT, roughness: 0.9 }));
+    tag.rotation.set(0.1, 0.15, -0.18);
+    grp.add(at(tag, 0.05, H - 0.14, R + 0.022));
+
+    // the printed label: black and gold, low on the jar so the nuts show above it
+    const lbl = canvasTex(512, 200, (g2, w, h) => {
+      g2.fillStyle = "#15110d";
       g2.fillRect(0, 0, w, h);
       g2.strokeStyle = "#c9a24a";
       g2.lineWidth = 3;
-      g2.strokeRect(8, 8, w - 16, h - 16);
-      g2.fillStyle = "#d9b45f";
+      g2.strokeRect(10, 10, w - 20, h - 20);
+      g2.lineWidth = 1;
+      g2.strokeRect(17, 17, w - 34, h - 34);
+      g2.fillStyle = "#e0bd68";
       g2.textAlign = "center";
-      g2.font = `600 28px ${fontVar}`;
-      g2.fillText("Roasted Nuts", w / 2, 92);
+      g2.font = `600 52px ${fontVar}`;
+      g2.fillText("DRY FRUITS", w / 2, 98);
+      g2.font = `500 22px ${fontVar}`;
+      g2.fillText("ROASTED CASHEWS · WHOLE ALMONDS", w / 2, 142);
     });
-    grp.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.302, 0.302, 0.17, 32, 1, true, -0.55, 1.1), std({ map: lbl, roughness: 0.6 })), 0, 0.3, 0));
+    grp.add(at(new THREE.Mesh(new THREE.CylinderGeometry(R + 0.003, R + 0.003, 0.15, 48, 1, true, -0.62, 1.24), std({ map: lbl, roughness: 0.55 })), 0, 0.15, 0));
     return grp;
   };
   // a kraft stand-up pouch: puffed in the middle, flat at the side seams and the heat-sealed top, wider at the gusset
@@ -399,13 +606,13 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     return grp;
   };
   const BUILD: Record<string, () => THREE.Group> = {
-    kulhadTeal: () => buildKulhad("#6f9aa0"),
-    kulhadLav: () => buildKulhad("#82709a"),
+    kulhadTeal: () => buildKulhad("#6b4a32"),
+    kulhadLav: () => buildKulhad("#e6e0d4"),
     coffeeArtisan: () => buildPouch("t_pouchArtisan"),
     diya: buildDiya,
     card700: () => buildFlat("t_card700", 0.62, 0.015, 0xefe6d6),
-    mugCharcoal: () => buildMug({ color: "#3b3631", dot: "#b9ab98", lid: true }),
-    mugCream: () => buildMug({ color: "#e3d9c8", dot: "#7d6f5e", lid: true }),
+    mugCharcoal: () => buildMug({ color: "#1d1b19", dot: "#8f8478", lid: true, rice: true }),
+    mugCream: () => buildMug({ color: "#eeeae2", dot: "#8a8075", lid: true, rice: true }),
     coffeeFestive: () => buildPouch("t_pouchFestive"),
     choc: () => buildFlat("t_choc", 0.8, 0.14, 0x2a1710),
     card800: () => buildFlat("t_card800", 0.62, 0.015, 0xefe6d6),
@@ -417,7 +624,7 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     nuts: buildJar,
     guide: () => buildFlat("t_guide", 0.8, 0.02, 0xefe6d6),
     travel: buildTravel,
-    mugRed: () => buildMug({ color: "#8e2a26", dot: "#e0a49a" }),
+    mugRed: () => buildMug({ color: "#5a3a26", dot: "#c9a888" }),
   };
   const makeItem = (key: string) => {
     const raw = BUILD[key]();
@@ -430,6 +637,68 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     pivot.add(raw);
     pivot.userData = { key };
     return pivot;
+  };
+
+  /* ── crinkle-cut paper shred: hundreds of thin, folded, twisting paper strips heaped in the box ── */
+  const strandGeo = () => {
+    const N = 24, L = rnd(0.3, 0.44), w = rnd(0.024, 0.034);
+    const amp = rnd(0.008, 0.014), curl = rnd(0.03, 0.11), turns = rnd(0.6, 1.5), twist = rnd(0.8, 2.6), ph = rnd(0, 6.28);
+    const pos: number[] = [], idx: number[] = [];
+    for (let i = 0; i <= N; i++) {
+      const u = i / N;
+      const cx = (u - 0.5) * L;
+      const cz = curl * Math.sin(u * PI * 2 * turns + ph);
+      const cy = (i % 2 ? 1 : -1) * amp + 0.035 * Math.sin(u * PI * turns + ph);
+      const tw = twist * u + ph;
+      const wy = Math.sin(tw) * (w / 2), wz = Math.cos(tw) * (w / 2);
+      pos.push(cx, cy + wy, cz + wz, cx, cy - wy, cz - wz);
+      if (i < N) {
+        const a = i * 2;
+        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  };
+  const paperShred = (iw: number, id: number, H: number, noir: boolean) => {
+    const grp = new THREE.Group();
+    // a bed underneath, so nothing shows through gaps
+    const bed = new THREE.Mesh(new THREE.PlaneGeometry(iw, id).rotateX(-PI / 2), std({ color: noir ? 0x0c0a09 : 0x4a2f18, roughness: 1 }));
+    bed.position.y = H * 0.24;
+    bed.receiveShadow = true;
+    grp.add(bed);
+    const hw = iw / 2 - 0.16, hd = id / 2 - 0.16;
+    const total = Math.round(iw * id * 125);
+    const variants = noir
+      ? [
+          { mat: std({ color: 0xffffff, roughness: 0.7, side: THREE.DoubleSide }), cols: ["#141210", "#1c1916", "#25211c", "#0f0d0c"], share: 0.3 },
+          { mat: std({ color: 0xffffff, roughness: 0.7, side: THREE.DoubleSide }), cols: ["#1a1714", "#221e1a", "#121010"], share: 0.28 },
+          { mat: std({ color: 0xffffff, roughness: 0.7, side: THREE.DoubleSide }), cols: ["#171412", "#1f1b17"], share: 0.27 },
+          { mat: std({ color: 0xffffff, roughness: 0.3, metalness: 0.9, side: THREE.DoubleSide }), cols: ["#d2ac55", "#c39a45", "#e6c77a"], share: 0.15 },
+        ]
+      : [0, 1, 2, 3].map(() => ({ mat: std({ color: 0xffffff, roughness: 0.92, side: THREE.DoubleSide }), cols: ["#8a5a2e", "#a56f3a", "#6e4522", "#c08a4e", "#94653a", "#b07a44"], share: 0.25 }));
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), c = new THREE.Color(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+    for (const vr of variants) {
+      const n = Math.round(total * vr.share);
+      const inst = new THREE.InstancedMesh(strandGeo(), vr.mat, n);
+      for (let i = 0; i < n; i++) {
+        const x = rnd(-hw, hw), z = rnd(-hd, hd);
+        const heap = 1 - 0.55 * (x / hw) ** 2 - 0.55 * (z / hd) ** 2;
+        v.set(x, H * 0.27 + H * 0.26 * heap * Math.sqrt(Math.random()) + rnd(0, 0.03), z);
+        q.setFromEuler(e.set(rnd(-0.6, 0.6), rnd(0, 6.28), rnd(-0.6, 0.6)));
+        sc.setScalar(rnd(0.85, 1.15));
+        m4.compose(v, q, sc);
+        inst.setMatrixAt(i, m4);
+        inst.setColorAt(i, c.set(vr.cols[i % vr.cols.length]).offsetHSL(0, 0, rnd(-0.03, 0.03)));
+      }
+      inst.castShadow = true;
+      inst.receiveShadow = true;
+      grp.add(inst);
+    }
+    return grp;
   };
 
   /* ── gift box ── */
@@ -454,31 +723,7 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     base.add(at(mesh(new THREE.BoxGeometry(W, H, t), mat), 0, H / 2, -D / 2 + t / 2));
     base.add(at(mesh(new THREE.BoxGeometry(t, H, D), mat), W / 2 - t / 2, H / 2, 0));
     base.add(at(mesh(new THREE.BoxGeometry(t, H, D), mat), -W / 2 + t / 2, H / 2, 0));
-    const shred = canvasTex(512, 512, (g, w, h) => {
-      g.fillStyle = "#4a2f18";
-      g.fillRect(0, 0, w, h);
-      const cols = ["#8a5a2e", "#a56f3a", "#6e4522", "#c08a4e", "#94653a"];
-      for (let i = 0; i < 1100; i++) {
-        g.strokeStyle = cols[i % cols.length];
-        g.lineWidth = rnd(2, 3.5);
-        let x = rnd(-10, w), y = rnd(-10, h);
-        const a = rnd(0, 6.28);
-        g.beginPath(); g.moveTo(x, y);
-        for (let s = 0; s < 7; s++) {
-          x += Math.cos(a) * 6 + (s % 2 ? 4 : -4) * Math.sin(a);
-          y += Math.sin(a) * 6 + (s % 2 ? -4 : 4) * Math.cos(a);
-          g.lineTo(x, y);
-        }
-        g.stroke();
-      }
-    });
-    shred.wrapS = shred.wrapT = THREE.RepeatWrapping;
-    shred.repeat.set(2, 1.5);
-    const paper = new THREE.Mesh(new THREE.PlaneGeometry(W - 2 * t, D - 2 * t), std({ map: shred, bumpMap: shred, bumpScale: 0.04, roughness: 1 }));
-    paper.rotation.x = -PI / 2;
-    paper.position.y = H * 0.35;
-    paper.receiveShadow = true;
-    base.add(paper);
+    base.add(paperShred(W - 2 * t, D - 2 * t, H, noir));
     root.add(base);
 
     const lid = new THREE.Group();
@@ -578,12 +823,12 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
   };
 
   /* ── state ── */
-  type BoxState = { box: ReturnType<typeof buildGiftBox>; items: THREE.Group[]; index: number };
+  type BoxState = { box: ReturnType<typeof buildGiftBox>; items: THREE.Group[]; index: number; keys: string[] };
   let S: BoxState | null = null;
   let phase: UnboxPhase = "closed";
   let focused: THREE.Group | null = null;
   const view = { yaw: 0, pitch: 0.42, dist: 9, target: new THREE.Vector3(0, 0.5, 0), wantDist: 9, wantTarget: new THREE.Vector3(0, 0.5, 0) };
-  const emit = () => S && onChange({ phase, box: S.index, focused: focused ? S.items.indexOf(focused) : null });
+  const emit = () => S && onChange({ phase, box: S.index, focused: focused ? S.items.indexOf(focused) : null, items: S.keys });
 
   const disposeObj = (obj: THREE.Object3D) =>
     obj.traverse((o) => {
@@ -633,7 +878,7 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     if (!narrow && aspect < 1.35) view.wantDist *= 1.12;
   };
 
-  const loadBox = (i: number) => {
+  const loadBox = (i: number, custom?: string[]) => {
     if (phase === "opening" || phase === "closing") return;
     if (S) {
       scene.remove(S.box.root);
@@ -645,12 +890,13 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     }
     flames.length = 0;
     const def = UNBOX_BOXES[i];
-    const big = def.items.length > 7;
+    const keys = custom ?? def.items;
+    const big = keys.length > 7 || custom !== undefined;
     const noir = def.style === "noir";
     const W = noir ? (big ? 4.2 : 3.6) : 3.3, D = noir ? (big ? 3 : 2.7) : 2.4, H = noir ? 0.9 : 0.8;
     const box = buildGiftBox(def.style, W, D, H);
     scene.add(box.root);
-    const items = def.items.map(makeItem);
+    const items = keys.map(makeItem);
     const sl = slots(items.length, H);
     items.forEach((p, k) => {
       p.visible = false;
@@ -658,7 +904,7 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
       p.userData.rot = ITEMS[p.userData.key].rot;
       scene.add(p);
     });
-    S = { box, items, index: i };
+    S = { box, items, index: i, keys: [...keys] };
     phase = "closed";
     focused = null;
     view.yaw = 0;
@@ -703,6 +949,57 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
         }, ease.back).then(() => (p.userData.ready = true));
       }),
     );
+    emit();
+  };
+
+  const setItems = (keys: string[]) => {
+    if (!S) return;
+    if (phase === "closed") return loadBox(S.index, keys);
+    if (phase !== "open") return;
+    unfocus();
+    const H = S.box.H;
+    const keep = S.items.filter((p) => keys.includes(p.userData.key));
+    S.items
+      .filter((p) => !keys.includes(p.userData.key))
+      .forEach((p) => {
+        p.userData.ready = false;
+        const from = p.position.clone(), to = new THREE.Vector3(from.x * 0.3, H * 0.4, from.z * 0.3), s0 = p.scale.x;
+        tween(0.45, 0, (t) => {
+          p.position.lerpVectors(from, to, t);
+          p.scale.setScalar(s0 * (1 - t * 0.85));
+        }).then(() => {
+          scene.remove(p);
+          disposeObj(p);
+        });
+      });
+    const fresh: THREE.Group[] = [];
+    const items = keys.map((k) => {
+      const have = keep.find((p) => p.userData.key === k);
+      if (have) return have;
+      const p = makeItem(k);
+      p.userData.rot = ITEMS[k].rot;
+      p.userData.ready = false;
+      p.visible = true;
+      p.scale.setScalar(0.2);
+      p.position.set(rnd(-0.5, 0.5), H * 0.4, rnd(-0.3, 0.3));
+      scene.add(p);
+      fresh.push(p);
+      return p;
+    });
+    const sl = slots(items.length, H);
+    items.forEach((p, k) => (p.userData.slot = sl[k]));
+    // the same rise-and-turn as the unboxing
+    fresh.forEach((p) => {
+      const from = p.position.clone(), to = p.userData.slot as THREE.Vector3;
+      tween(0.95, 0.05, (t) => {
+        p.position.lerpVectors(from, to, t);
+        p.scale.setScalar(0.2 + 0.8 * Math.min(1, t));
+        p.rotation.y = p.userData.rot - (1 - t) * PI * 1.6;
+      }, ease.back).then(() => (p.userData.ready = true));
+    });
+    S.items = items;
+    S.keys = [...keys];
+    frame();
     emit();
   };
 
@@ -898,13 +1195,14 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
   };
 
   resize();
-  loadBox(0);
+  loadBox(Math.max(0, Math.min(UNBOX_BOXES.length - 1, opts.box ?? 0)));
   view.dist = view.wantDist;
   view.target.copy(view.wantTarget);
   loop();
 
   return {
     loadBox,
+    setItems,
     open: () => void open(),
     close: () => void close(),
     focus: (k) => S && focusItem(S.items[k]),

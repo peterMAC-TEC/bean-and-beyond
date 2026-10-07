@@ -13,7 +13,7 @@
  *   uLight   vec2  cursor position (0..1) — a light that follows it
  *   uStream  vec2  milk stream: thickness 0..1, wobble phase
  *   uCoffee, uCaramel, uMilk  vec3  liquid colours (linear)
- *   uBg      float 0 = bar scene, 1 = card panel
+ *   uBg      float 0 = bar scene, 1 = card panel, 2 = no backdrop (transparent canvas, e.g. in the crate)
  */
 import { head } from "./fluid";
 
@@ -132,15 +132,24 @@ float droplets(vec2 p, out float shade){
   return spec;
 }
 
+// lay colour c over (col, a) with coverage k (with a = 1 this is just mix)
+void over(inout vec3 col, inout float a, vec3 c, float k){
+  float na = k + a * (1.0 - k);
+  col = (c * k + col * a * (1.0 - k)) / max(na, 1e-4);
+  a = na;
+}
+
 void main(){
   vec2 r = rel(vUv);
   vec2 p = rot(r, -uBottle.w);
   float d = glassSD(p);
   float dc = capSD(p);
-  vec3 col = background(vUv);
+  bool clear = uBg > 1.5;
+  vec3 col = clear ? vec3(0.0) : background(vUv);
+  float alpha = clear ? 0.0 : 1.0;
 
   // reflection in the counter and a contact shadow
-  if (r.y < 0.0) {
+  if (r.y < 0.0 && !clear) {
     vec2 pm = rot(vec2(r.x, -r.y), -uBottle.w);
     float dm = glassSD(pm);
     float refl = smoothstep(0.0, -0.004, dm) * exp(r.y * 7.0);
@@ -173,7 +182,7 @@ void main(){
     liq += vec3(1.0, 0.95, 0.85) * pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 80.0) * 0.5;
 
     float wet = liquidAt(ruv);
-    vec3 empty = background(ruv) * vec3(0.35, 0.9, 0.5) + vec3(0.0008, 0.006, 0.0025);
+    vec3 empty = (clear ? vec3(0.006, 0.005, 0.004) : background(ruv)) * vec3(0.35, 0.9, 0.5) + vec3(0.0008, 0.006, 0.0025);
     vec3 inner = mix(empty, liq * vec3(0.78, 1.0, 0.8), wet);
 
     // milk stream pouring in through the neck
@@ -208,7 +217,8 @@ void main(){
     inner *= 1.0 - shadeD * 0.18;
     inner += hl * (rim * 0.35 + streak * 0.42 + streakFine * 0.5 + streakR * 0.3 + shoulder * 0.45 + neckHl * 0.35 + glint * 0.18 + drop * 0.2);
 
-    col = mix(col, inner, smoothstep(0.002, -0.002, d));
+    // with no backdrop the empty glass is see-through, the liquid is not
+    over(col, alpha, inner, smoothstep(0.002, -0.002, d) * (clear ? mix(0.62, 1.0, max(wet, edge * 0.8)) : 1.0));
   }
 
   // ------------------------------------------------------------------ cap
@@ -222,15 +232,15 @@ void main(){
     metal *= 1.0 - 0.35 * exp(-pow((p.y - 0.985) / 0.0025, 2.0)) - 0.3 * exp(-pow((p.y - 0.995) / 0.0025, 2.0));
     metal += vec3(1.0) * 0.5 * exp(-pow((cx + 0.4 - lshift * 12.0) / 0.1, 2.0)) * cyl;
     metal *= 0.7 + 0.3 * smoothstep(0.91, 0.93, p.y);
-    col = mix(col, metal, smoothstep(0.003, -0.002, dc));
+    over(col, alpha, metal, smoothstep(0.003, -0.002, dc));
   }
 
   // finish: vignette and grain
   vec2 q = vUv - 0.5; q.x *= aspect;
-  col *= mix(1.0, smoothstep(1.25, 0.3, length(q)), uBg > 0.5 ? 0.4 : 1.0);
+  if (!clear) col *= mix(1.0, smoothstep(1.25, 0.3, length(q)), uBg > 0.5 ? 0.4 : 1.0);
   col = pow(col, vec3(1.0 / 2.2));
   col += (hash(vUv * 1000.0 + time) - 0.5) * 0.02;
-  o = vec4(col, 1.0);
+  o = vec4(col, alpha);
 }
 `;
 

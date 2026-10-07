@@ -14,7 +14,7 @@ const LAYOUT: BottleLayout = (w, h) => (w / h > 0.9 ? { x: 0.5, y: 0.08, h: 0.8 
 
 /** The last stop: pick a flavour and how many, then buy (opens the order panel). */
 export function Buy() {
-  const { buy, flavours, packs } = site;
+  const { buy, flavours, delivery } = site;
   const [pick, setPick] = useState(flavours[0].id);
   const [qty, setQty] = useState(1);
   const flavour = flavours.find((f) => f.id === pick) ?? flavours[0];
@@ -33,7 +33,7 @@ export function Buy() {
         {/* the bottle: live coffee you can tap, stir and tilt */}
         <div className="relative mx-auto aspect-[4/5] w-full max-w-[460px] overflow-hidden rounded-lg border border-line bg-panel">
           <FluidBottle variant="card" colours={COLOURS} layout={LAYOUT} autoPour className="absolute inset-0" />
-          <p className="mono pointer-events-none absolute left-4 top-4 rounded-sm border border-line bg-ink/80 px-2 py-1 text-muted">Tap to pour · drag to tilt</p>
+          <p className="mono pointer-events-none absolute left-4 top-4 rounded-sm border border-line bg-ink/80 px-2 py-1 text-muted">Tap to pour · drag to tilt · read the label</p>
           <p className="mono pointer-events-none absolute right-4 top-4 rotate-[-4deg] border border-brick/70 px-2 py-1 text-[#e0604f]">0% ABV</p>
         </div>
 
@@ -100,11 +100,11 @@ export function Buy() {
             type="button"
             onClick={() => {
               play("clink");
-              openOrder({ mode: packs[0].id });
+              openOrder();
             }}
             className="mono mt-6 text-muted transition hover:text-glow"
           >
-            Or mix &amp; match: {packs.map((p) => `${p.size} for ₹${p.price}`).join(" · ")} →
+            Mix &amp; match any number · free delivery from {delivery.freeFrom} bottles →
           </button>
         </div>
       </div>

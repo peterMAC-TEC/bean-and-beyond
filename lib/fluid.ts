@@ -27,6 +27,8 @@ export type FluidOptions = {
   /** a full fragment shader (use `head` conventions: vUv, out o; uniforms uDye, texel, aspect, time) */
   display?: string;
   alpha?: boolean;
+  /** keep running while a panel is open over the page (bb:lock); everything else pauses behind it */
+  overPanel?: boolean;
 };
 
 export type Fluid = {
@@ -39,6 +41,10 @@ export type Fluid = {
   /** wipe the milk away (back to black coffee) */
   reset: () => void;
   setRunning: (on: boolean) => void;
+  /** true once the shaders have compiled and frames are being drawn */
+  ready: () => boolean;
+  /** draw a frame now and return it as an image (PNG data URL) */
+  snapshot: () => string;
   dispose: () => void;
 };
 
@@ -200,27 +206,52 @@ export function createFluid(canvas: HTMLCanvasElement, opts: FluidOptions = {}):
   const extra: Record<string, Uniform> = {};
 
   // ---------- programs ----------
+  // Shaders compile in the background where the browser can (KHR_parallel_shader_compile): asking for
+  // a compile or link status straight away would stall the page until the GPU process finishes, a visible
+  // hitch every time a bottle starts. Nothing is drawn until every program reports it's done.
+  const parallel = gl.getExtension("KHR_parallel_shader_compile");
   const compile = (type: number, src: string) => {
     const s = gl.createShader(type)!;
     gl.shaderSource(s, src);
     gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) ?? "shader");
     return s;
   };
   const vs = compile(gl.VERTEX_SHADER, VERT);
-  const program = (frag: string) => {
+  type Prog = { p: WebGLProgram; fs: WebGLShader; u: Record<string, WebGLUniformLocation | null> };
+  const programs: Prog[] = [];
+  const program = (frag: string): Prog => {
     const p = gl.createProgram()!;
+    const fs = compile(gl.FRAGMENT_SHADER, frag);
     gl.attachShader(p, vs);
-    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, frag));
+    gl.attachShader(p, fs);
     gl.bindAttribLocation(p, 0, "aPos");
     gl.linkProgram(p);
-    const u: Record<string, WebGLUniformLocation | null> = {};
-    const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
-    for (let i = 0; i < n; i++) {
-      const name = gl.getActiveUniform(p, i)!.name;
-      u[name] = gl.getUniformLocation(p, name);
+    const prog = { p, fs, u: {} };
+    programs.push(prog);
+    return prog;
+  };
+  let ready = false;
+  const finish = () => {
+    for (const { p, fs, u } of programs) {
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(fs) || gl.getShaderInfoLog(vs) || gl.getProgramInfoLog(p) || "shader");
+      }
+      const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+      for (let i = 0; i < n; i++) {
+        const name = gl.getActiveUniform(p, i)!.name;
+        u[name] = gl.getUniformLocation(p, name);
+      }
     }
-    return { p, u };
+    ready = true;
+    early.splice(0).forEach((f) => f());
+  };
+  /** splats asked for while the shaders were still compiling */
+  const early: (() => void)[] = [];
+  const isReady = () => {
+    if (ready) return true;
+    if (parallel && !programs.every(({ p }) => gl.getProgramParameter(p, parallel.COMPLETION_STATUS_KHR))) return false;
+    finish();
+    return true;
   };
   const prog = {
     splat: program(SPLAT),
@@ -235,6 +266,8 @@ export function createFluid(canvas: HTMLCanvasElement, opts: FluidOptions = {}):
     display: program(opts.display ?? MARBLE_DISPLAY),
     mask: opts.mask ? program(MASK(opts.mask)) : null,
   };
+  // without the extension, compile now (and throw now, so the caller can fall back)
+  if (!parallel) finish();
 
   const vbo = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
@@ -311,7 +344,7 @@ export function createFluid(canvas: HTMLCanvasElement, opts: FluidOptions = {}):
     gl.bindTexture(gl.TEXTURE_2D, t.tex);
     return unit;
   };
-  const activate = (p: { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> }, w: number, h: number) => {
+  const activate = (p: Prog, w: number, h: number) => {
     gl.useProgram(p.p);
     const u = p.u;
     if (u.texel) gl.uniform2f(u.texel, 1 / w, 1 / h);
@@ -412,12 +445,29 @@ export function createFluid(canvas: HTMLCanvasElement, opts: FluidOptions = {}):
   };
 
   // ---------- loop ----------
+  let wanted = true;
+  let locked = false;
   let running = true;
+  let disposed = false;
   let raf = 0;
   let last = performance.now();
+  const update = () => {
+    const was = running;
+    running = wanted && !locked;
+    if (running && !was) last = performance.now();
+  };
+  const onLock = () => ((locked = true), update());
+  const onUnlock = () => ((locked = false), update());
+  if (!opts.overPanel) {
+    window.addEventListener("bb:lock", onLock);
+    window.addEventListener("bb:unlock", onUnlock);
+  }
   const loop = (now: number) => {
     raf = requestAnimationFrame(loop);
-    if (!running) return;
+    if (!running || !isReady()) {
+      last = now;
+      return;
+    }
     const dt = Math.min((now - last) / 1000, 1 / 30);
     last = now;
     step(dt);
@@ -428,10 +478,16 @@ export function createFluid(canvas: HTMLCanvasElement, opts: FluidOptions = {}):
   return {
     uniforms: extra,
     splat: (x, y, dx, dy, milk, radius = 0.25) => {
-      splatInto(velocity, x, y, [dx, dy, 0], radius);
-      if (milk > 0) splatInto(dye, x, y, [milk, 0, 0], radius * 0.9);
+      const go = () => {
+        splatInto(velocity, x, y, [dx, dy, 0], radius);
+        if (milk > 0) splatInto(dye, x, y, [milk, 0, 0], radius * 0.9);
+      };
+      if (ready) go();
+      else early.push(go);
     },
     vortex: (x, y, strength) => {
+      if (!ready) return;
+      if (strength === 0) return;
       const u = activate(prog.vortex, velocity.w, velocity.h);
       gl.uniform1i(u.uTarget, bind(0, velocity.read));
       gl.uniform1f(u.aspect, canvas.width / canvas.height);
@@ -448,11 +504,21 @@ export function createFluid(canvas: HTMLCanvasElement, opts: FluidOptions = {}):
       }
     },
     setRunning: (on) => {
-      running = on;
-      last = performance.now();
+      wanted = on;
+      update();
+    },
+    ready: isReady,
+    snapshot: () => {
+      if (!isReady()) finish();
+      render(performance.now() / 1000);
+      return canvas.toDataURL("image/png");
     },
     dispose: () => {
+      if (disposed) return;
+      disposed = true;
       cancelAnimationFrame(raf);
+      window.removeEventListener("bb:lock", onLock);
+      window.removeEventListener("bb:unlock", onUnlock);
       ro.disconnect();
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     },

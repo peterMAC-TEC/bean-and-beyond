@@ -54,7 +54,7 @@ export function Hero() {
           <Button href="#lineup">+ Order a bottle · ₹249</Button>
           <span className="mono hidden text-muted sm:inline">0% ABV · ID not required</span>
         </div>
-        <p className="h-in mono mt-4 text-muted lg:hidden">Tap the bottle to pour · drag to tilt</p>
+        <p className="h-in mono mt-4 text-muted lg:hidden">Tap the bottle to pour · drag to tilt · hold the label to read it</p>
       </div>
 
       <div className="h-in pointer-events-none absolute right-5 top-20 hidden text-right sm:right-8 lg:top-24 lg:block">
@@ -65,6 +65,8 @@ export function Hero() {
           Drag to tilt · Double-tap to shake
           <br />
           Hover to stir
+          <br />
+          Hover the label to read it
         </p>
       </div>
     </section>

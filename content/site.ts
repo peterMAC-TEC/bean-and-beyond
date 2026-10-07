@@ -73,8 +73,7 @@ export const site = {
 
   // ---------- Packs ----------
   packs: [
-    { id: "three", size: 3, price: 597, delivery: "TODO: delivery fee" },
-    { id: "five", size: 5, price: 995, delivery: "Free delivery" },
+    // (2026-10-07: packs retired. Any number of bottles at the single price; free delivery from delivery.freeFrom.)
   ],
 
   // ---------- Add-ons ----------
@@ -92,7 +91,9 @@ export const site = {
   // ---------- Delivery ----------
   delivery: {
     area: "TODO: Bengaluru only, or all-India?",
-    singleFee: "TODO: delivery fee for single bottles",
+    singleFee: "TODO: delivery fee for under 4 bottles",
+    /** free delivery from this many bottles (any mix) */
+    freeFrom: 4,
   },
 
   // ---------- Promo codes (live ones go in the database in Phase 4) ----------

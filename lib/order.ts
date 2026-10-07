@@ -1,7 +1,6 @@
 /**
  * Opens the order drawer from anywhere on the page.
  *   openOrder()                  just open it
- *   openOrder({ mode: "three" }) open on the 3-pack (a pack id from content/site.ts)
  *   openOrder({ add: "classic" }) open and add one bottle of that flavour
  *   openOrder({ mode: "bottles", add: "vanilla", qty: 2 }) open with two Vanilla bottles added
  */

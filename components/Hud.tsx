@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { getMuted, setMuted, subscribeSound, play } from "@/lib/sound";
 import { site } from "@/content/site";
@@ -105,7 +106,19 @@ export function Hud() {
               </a>
             ))}
           </nav>
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-3 sm:gap-5">
+            {/* Diwali gift hampers: the 3D unboxing */}
+            <Link
+              href="/unbox"
+              onClick={() => play("clink")}
+              className="hud flex items-center gap-1.5 rounded-sm border border-dashed border-glow/50 px-2.5 py-1 text-[13px] text-glow transition hover:border-solid hover:bg-glow/10 sm:px-3 sm:py-1.5"
+            >
+              <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.4">
+                <rect x="2" y="6.5" width="12" height="7.5" rx="0.5" />
+                <path d="M1.5 4.5h13v2h-13zM8 4.5V14M8 4.5C6.5 2 4 1.8 4 3.4 4 4.5 8 4.5 8 4.5zM8 4.5c1.5-2.5 4-2.7 4-1.1 0 1.1-4 1.1-4 1.1z" />
+              </svg>
+              Gifting
+            </Link>
             <SoundToggle />
             <button
               type="button"

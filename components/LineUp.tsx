@@ -7,7 +7,7 @@ import { TextReveal } from "./TextReveal";
 import { FluidBottle, type BottleColours, type BottleLayout } from "./FluidBottle";
 
 // each flavour's liquid: coffee, the caramel in-between, and its milk
-const COLOURS: Record<string, BottleColours> = {
+export const COLOURS: Record<string, BottleColours> = {
   classic: { coffee: "#150a04", caramel: "#94551f", milk: "#f3e6c8" },
   vanilla: { coffee: "#1d0f07", caramel: "#bb8c4f", milk: "#fcf2da" },
   hazelnut: { coffee: "#180b05", caramel: "#a8602c", milk: "#edd3aa" },
@@ -16,7 +16,7 @@ const CARD_LAYOUT: BottleLayout = () => ({ x: 0.5, y: 0.09, h: 0.74 });
 
 /** The line-up: one card per flavour. "Add to order" opens the order panel (components/OrderDrawer.tsx). */
 export function LineUp() {
-  const { lineup, flavours, packs, addOns } = site;
+  const { lineup, flavours, addOns, delivery } = site;
   const single = flavours[0].price;
   const milk = addOns.find((a) => a.show);
 
@@ -77,21 +77,21 @@ export function LineUp() {
           ))}
         </div>
 
-        {/* packs live in the order panel; one quiet line points to them */}
+        {/* the order panel takes any number of bottles; one quiet line points to it */}
         <div className="mt-6 flex flex-col items-start justify-between gap-3 border-t border-line pt-5 sm:flex-row sm:items-center">
           <p className="mono text-muted">
-            Mix &amp; match · {packs.map((p) => `${p.size} for ₹${p.price}`).join(" · ")}
+            Mix &amp; match any number · free delivery from {delivery.freeFrom} bottles
             {milk && ` · ${milk.name} +₹${milk.price}`}
           </p>
           <button
             type="button"
             onClick={() => {
               play("clink");
-              openOrder({ mode: packs[0].id });
+              openOrder();
             }}
             className="hud text-[15px] text-glow underline-offset-4 transition hover:underline"
           >
-            Build a pack →
+            Fill a crate →
           </button>
         </div>
       </div>

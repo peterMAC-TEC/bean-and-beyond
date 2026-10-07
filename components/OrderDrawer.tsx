@@ -4,35 +4,26 @@ import { useEffect, useRef, useState } from "react";
 import { site } from "@/content/site";
 import { play } from "@/lib/sound";
 import { ORDER_EVENT, type OpenOrder } from "@/lib/order";
+import { CrateStage } from "./CrateStage";
 
-const { flavours, packs, addOns, contact, delivery } = site;
+const { flavours, addOns, contact, delivery } = site;
 const SINGLE = flavours[0].price;
+const FREE_FROM = delivery.freeFrom;
 const milk = addOns.find((a) => a.show);
 const empty = () => Object.fromEntries(flavours.map((f) => [f.id, 0])) as Record<string, number>;
 const sum = (c: Record<string, number>) => Object.values(c).reduce((a, b) => a + b, 0);
-const fee = (text: string) => (text.startsWith("TODO") ? "+ delivery" : text);
 
-/** Drop bottles from the end of the list until the order fits the pack. */
-function fit(c: Record<string, number>, size: number) {
-  const next = { ...c };
-  for (let i = flavours.length - 1; i >= 0 && sum(next) > size; i--) {
-    const id = flavours[i].id;
-    next[id] = Math.max(0, next[id] - (sum(next) - size));
-  }
-  return next;
-}
-
-function Stepper({ value, label, onMinus, onPlus, full }: { value: number; label: string; onMinus: () => void; onPlus: () => void; full: boolean }) {
-  const btn = "grid h-9 w-9 place-items-center rounded-sm border border-line text-lg text-cream transition hover:border-gold/60 disabled:opacity-25 disabled:hover:border-line";
+function Stepper({ value, label, onMinus, onPlus }: { value: number; label: string; onMinus: () => void; onPlus: () => void }) {
+  const btn = "grid h-8 w-8 place-items-center rounded-sm border border-line text-base text-cream transition hover:border-gold/60 disabled:opacity-25 disabled:hover:border-line";
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex shrink-0 items-center gap-1.5">
       <button type="button" className={btn} onClick={onMinus} disabled={value === 0} aria-label={`One less ${label}`}>
         −
       </button>
       <span className="mono w-6 text-center !text-[13px] text-cream" aria-live="polite">
         {value}
       </span>
-      <button type="button" className={btn} onClick={onPlus} disabled={full} aria-label={`One more ${label}`}>
+      <button type="button" className={btn} onClick={onPlus} aria-label={`One more ${label}`}>
         +
       </button>
     </div>
@@ -40,57 +31,51 @@ function Stepper({ value, label, onMinus, onPlus, full }: { value: number; label
 }
 
 /**
- * The order panel: pick bottles one by one or build a mixed pack, add extra
- * milk, then send the order on WhatsApp. Opened by every Order / Add button.
+ * The order panel: add as many bottles as you like (any mix of flavours); every one drops into the
+ * wooden crate at the top. Free delivery from {FREE_FROM} bottles. Sending the order nails the crate
+ * shut and ships it, and opens WhatsApp with the order written out. Opened by every Order / Add button.
  * TODO (Phase 4): replace the WhatsApp step with a real cart and checkout.
  */
 export function OrderDrawer() {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState("bottles");
   const [counts, setCounts] = useState(empty);
   const [extra, setExtra] = useState(0);
+  // the order has been sent: the crate is nailed shut and ships out of frame (reset by any change)
+  const [shipped, setShipped] = useState(false);
   const closeBtn = useRef<HTMLButtonElement>(null);
 
-  const pack = packs.find((p) => p.id === mode);
+  // in the order they were added, so new bottles join the end of the crate
+  const [order, setOrder] = useState<string[]>([]);
   const picked = sum(counts);
-  const left = pack ? pack.size - picked : Infinity;
-  const ready = pack ? left === 0 : picked > 0;
-  const base = pack ? pack.price : picked * SINGLE;
-  const total = base + extra * (milk?.price ?? 0);
-  const deal = !pack && packs.find((p) => p.size === picked);
+  const free = picked >= FREE_FROM;
+  const toFree = Math.max(0, FREE_FROM - picked);
+  const total = picked * SINGLE + extra * (milk?.price ?? 0);
 
-  const choose = (id: string) => {
-    play("tick");
-    setMode(id);
-    const p = packs.find((x) => x.id === id);
-    if (p) setCounts((c) => fit(c, p.size));
-  };
   const bump = (id: string, d: number) => {
     play("tick", { gain: 0.7 });
+    setShipped(false);
     setCounts((c) => ({ ...c, [id]: Math.max(0, c[id] + d) }));
+    setOrder((o) => {
+      if (d > 0) return [...o, id];
+      const i = o.lastIndexOf(id);
+      return i < 0 ? o : [...o.slice(0, i), ...o.slice(i + 1)];
+    });
   };
 
   // opened from anywhere via openOrder()
   useEffect(() => {
     const onOpen = (e: Event) => {
-      const { mode: m, add, qty = 1 } = (e as CustomEvent<OpenOrder>).detail ?? {};
-      if (m) {
-        setMode(m);
-        const p = packs.find((x) => x.id === m);
-        if (p) setCounts((c) => fit(c, p.size));
-      }
+      const { add, qty = 1 } = (e as CustomEvent<OpenOrder>).detail ?? {};
       if (add) {
-        setCounts((c) => {
-          const p = packs.find((x) => x.id === (m ?? mode));
-          if (!p) return { ...c, [add]: c[add] + qty };
-          return { ...c, [add]: c[add] + Math.max(0, Math.min(qty, p.size - sum(c))) };
-        });
+        setCounts((c) => ({ ...c, [add]: c[add] + qty }));
+        setOrder((o) => [...o, ...Array.from({ length: qty }, () => add)]);
       }
+      setShipped(false);
       setOpen(true);
     };
     window.addEventListener(ORDER_EVENT, onOpen);
     return () => window.removeEventListener(ORDER_EVENT, onOpen);
-  }, [mode]);
+  }, []);
 
   // while open: page scroll stops, Esc closes, focus moves into the panel
   useEffect(() => {
@@ -109,17 +94,12 @@ export function OrderDrawer() {
 
   const message = [
     "Hi! I'd like to order:",
-    pack ? `The ${pack.size}-pack (₹${pack.price})` : `${picked} bottle${picked === 1 ? "" : "s"} (₹${base})`,
+    `${picked} bottle${picked === 1 ? "" : "s"} (₹${picked * SINGLE})`,
     ...flavours.filter((f) => counts[f.id]).map((f) => `• ${f.name} × ${counts[f.id]}`),
     ...(extra && milk ? [`+ ${milk.name} × ${extra} (₹${extra * milk.price})`] : []),
-    `Total: ₹${total}`,
+    `Total: ₹${total}${free ? " · free delivery" : ""}`,
   ].join("\n");
   const waUrl = `https://wa.me/${contact.whatsapp}?text=${encodeURIComponent(message)}`;
-
-  const options = [
-    { id: "bottles", title: "Bottles", note: `₹${SINGLE} each` },
-    ...packs.map((p) => ({ id: p.id, title: `${p.size}-pack`, note: `₹${p.price} · save ₹${p.size * SINGLE - p.price}` })),
-  ];
 
   return (
     <div inert={!open} aria-hidden={!open} className="fixed inset-0 z-[60]">
@@ -133,112 +113,93 @@ export function OrderDrawer() {
         role="dialog"
         aria-modal="true"
         aria-label="Your order"
-        className={`absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-line bg-panel shadow-2xl transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${open ? "translate-x-0" : "translate-x-full"}`}
+        data-lenis-prevent
+        className={`absolute inset-y-0 right-0 flex w-full max-w-md flex-col overflow-y-auto border-l border-line bg-panel shadow-2xl transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${open ? "translate-x-0" : "translate-x-full"}`}
       >
-        <header className="flex items-center justify-between border-b border-line px-6 py-5">
+        <header className="flex shrink-0 items-center justify-between border-b border-line px-6 py-3 [@media(max-height:640px)]:py-2">
           <div>
             <p className="mono text-muted">
-              Order <span className="text-glow">{"// "}Build your pack</span>
+              Order <span className="text-glow">{"// "}Into the crate</span>
             </p>
-            <p className="hud mt-1 text-3xl font-extralight text-cream">Your order</p>
+            <p className="hud mt-0.5 text-2xl font-extralight text-cream">Your order</p>
           </div>
           <button ref={closeBtn} type="button" onClick={() => setOpen(false)} aria-label="Close" className="grid h-10 w-10 place-items-center rounded-sm border border-line text-xl text-muted transition hover:border-gold/60 hover:text-cream">
             ×
           </button>
         </header>
 
-        <div data-lenis-prevent className="flex-1 overflow-y-auto px-6 py-6">
-          {/* how many */}
-          <div role="radiogroup" aria-label="Order size" className="grid grid-cols-3 gap-2">
-            {options.map((o) => {
-              const on = o.id === mode;
-              return (
-                <button
-                  key={o.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  onClick={() => choose(o.id)}
-                  className={`rounded-sm border px-3 py-3 text-left transition ${on ? "border-glow/70 bg-glow/10" : "border-line hover:border-gold/40"}`}
-                >
-                  <span className={`hud block text-xl ${on ? "text-glow" : "text-cream"}`}>{o.title}</span>
-                  <span className="mono mt-1 block !text-[9px] text-muted">{o.note}</span>
-                </button>
-              );
-            })}
+        {/* every bottle you add drops into the crate; it ships when you send the order.
+            The options and the button keep their size; the crate takes whatever height is left. */}
+        <div className="relative min-h-[104px] flex-1 border-b border-line bg-[radial-gradient(90%_120%_at_50%_100%,rgba(233,196,106,.10),transparent_70%),radial-gradient(45%_85%_at_50%_0%,rgba(233,196,106,.07),transparent_75%)]">
+          <CrateStage bottles={order} shipped={shipped} open={open} />
+        </div>
+
+        <div className="shrink-0 px-6 py-3 [@media(max-height:640px)]:py-2">
+          {/* free delivery progress */}
+          <div className="flex items-baseline justify-between">
+            <p className="mono text-muted">₹{SINGLE} a bottle · any mix</p>
+            <p className={`mono ${free ? "text-glow" : "text-muted"}`}>{free ? "Free delivery ✓" : `${toFree} more for free delivery`}</p>
+          </div>
+          <div aria-hidden className="mt-2 flex gap-1.5">
+            {Array.from({ length: FREE_FROM }, (_, i) => (
+              <span key={i} className={`h-1 flex-1 rounded-full transition-colors duration-300 ${i < picked ? "bg-glow" : "bg-line"}`} />
+            ))}
           </div>
 
-          {/* which flavours */}
-          <div className="mt-8 flex items-baseline justify-between">
-            <p className="mono text-muted">{pack ? `Mix & match ${pack.size}` : "Pick your bottles"}</p>
-            {pack && (
-              <p className={`mono ${left === 0 ? "text-glow" : "text-muted"}`}>{left === 0 ? "Pack full" : `${left} to go`}</p>
-            )}
-          </div>
-          {pack && (
-            <div aria-hidden className="mt-3 flex gap-1.5">
-              {Array.from({ length: pack.size }, (_, i) => (
-                <span key={i} className={`h-1 flex-1 rounded-full transition-colors duration-300 ${i < picked ? "bg-glow" : "bg-line"}`} />
-              ))}
-            </div>
-          )}
-          <ul className="mt-2">
+          <ul className="mt-1">
             {flavours.map((f) => (
-              <li key={f.id} className="flex items-center gap-4 border-b border-line py-4">
-                <span aria-hidden className="h-9 w-1.5 shrink-0 rounded-full" style={{ background: f.accent }} />
+              <li key={f.id} className="flex items-center gap-3 border-b border-line py-2 [@media(max-height:700px)]:py-1.5">
+                <span aria-hidden className="h-7 w-1 shrink-0 rounded-full" style={{ background: f.accent }} />
                 <div className="min-w-0 flex-1">
-                  <p className="hud text-2xl text-cream">{f.name}</p>
-                  <p className="truncate text-[13px] text-muted">{f.oneLiner}</p>
+                  <p className="hud text-lg leading-tight text-cream">{f.name}</p>
+                  <p className="truncate text-[12px] leading-tight text-muted">{f.oneLiner}</p>
                 </div>
-                <Stepper value={counts[f.id]} label={f.name} onMinus={() => bump(f.id, -1)} onPlus={() => bump(f.id, 1)} full={left <= 0} />
+                <Stepper value={counts[f.id]} label={f.name} onMinus={() => bump(f.id, -1)} onPlus={() => bump(f.id, 1)} />
               </li>
             ))}
             {milk && (
-              <li className="flex items-center gap-4 py-4">
-                <span aria-hidden className="h-9 w-1.5 shrink-0 rounded-full bg-milk" />
+              <li className="flex items-center gap-3 py-2 [@media(max-height:700px)]:py-1.5">
+                <span aria-hidden className="h-7 w-1 shrink-0 rounded-full bg-milk" />
                 <div className="min-w-0 flex-1">
-                  <p className="hud text-xl text-cream">{milk.name}</p>
-                  <p className="text-[13px] text-muted">+₹{milk.price} · for the ones who like it sweeter</p>
+                  <p className="hud text-lg leading-tight text-cream">{milk.name}</p>
+                  <p className="truncate text-[12px] leading-tight text-muted">+₹{milk.price} · for the ones who like it sweeter</p>
                 </div>
                 <Stepper
                   value={extra}
                   label={milk.name}
                   onMinus={() => (play("tick", { gain: 0.7 }), setExtra((n) => Math.max(0, n - 1)))}
                   onPlus={() => (play("tick", { gain: 0.7 }), setExtra((n) => n + 1))}
-                  full={false}
                 />
               </li>
             )}
           </ul>
-
-          {deal && (
-            <button type="button" onClick={() => choose(deal.id)} className="mono mt-4 w-full rounded-sm border border-dashed border-gold/40 px-4 py-3 text-left text-glow transition hover:border-glow">
-              {picked} bottles? Make it a {deal.size}-pack and save ₹{deal.size * SINGLE - deal.price} →
-            </button>
-          )}
         </div>
 
-        <footer className="border-t border-line bg-panel-2 px-6 pb-6 pt-5">
+        <footer className="shrink-0 border-t border-line bg-panel-2 px-6 pb-4 pt-3 [@media(max-height:640px)]:pb-3 [@media(max-height:640px)]:pt-2">
           <div className="flex items-baseline justify-between">
-            <p className="mono text-muted">Total · {pack ? fee(pack.delivery) : fee(delivery.singleFee)}</p>
-            <p className="hud text-4xl text-glow">₹{total}</p>
+            <p className="mono text-muted">Total · {free ? "free delivery" : picked ? "+ delivery" : "—"}</p>
+            <p className="hud text-3xl text-glow">₹{total}</p>
           </div>
-          {ready ? (
+          {picked > 0 ? (
             <a
               href={waUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={() => play("clink")}
-              className="hud mt-4 block rounded-sm bg-glow py-3.5 text-center text-[16px] font-semibold text-ink transition hover:bg-cream"
+              onClick={() => {
+                play("clink");
+                play("stamp");
+                setShipped(true);
+              }}
+              className="hud mt-3 block rounded-sm bg-glow py-3 text-center text-[16px] font-semibold text-ink transition hover:bg-cream"
             >
               Send order on WhatsApp ↗
             </a>
           ) : (
-            <button type="button" disabled className="hud mt-4 block w-full rounded-sm border border-line py-3.5 text-center text-[16px] text-muted">
-              {pack ? `Pick ${left} more` : "Pick a bottle to start"}
+            <button type="button" disabled className="hud mt-3 block w-full rounded-sm border border-line py-3 text-center text-[16px] text-muted">
+              Add a bottle to start
             </button>
           )}
-          <p className="mono mt-3 text-center !text-[9px] text-muted">Opens WhatsApp with your order written out, ready to send</p>
+          <p className="mono mt-2 text-center !text-[9px] text-muted">Opens WhatsApp with your order written out, ready to send</p>
         </footer>
       </aside>
     </div>

@@ -44,7 +44,7 @@ function frame(i: number) {
  * can animate. Parts have classes (label-border, label-title, label-crest,
  * label-art, label-warning) for GSAP.
  */
-export function Label({ className = "" }: { className?: string }) {
+export function Label({ className = "", shimmer = true }: { className?: string; /** the gold foil sweep (off where it would be too small to see) */ shimmer?: boolean }) {
   const { name, established } = site.brand;
   const { heading, lines } = site.warning;
   const id = useId().replace(/:/g, "");
@@ -64,7 +64,7 @@ export function Label({ className = "" }: { className?: string }) {
           <stop offset="0.48" stopColor="#fff3cf" />
           <stop offset="0.56" stopColor="#e2c27e" />
           <stop offset="1" stopColor="#9c7a3a" />
-          <animateTransform attributeName="gradientTransform" type="translate" values="-400 0; 400 0; 400 0" keyTimes="0; 0.55; 1" dur="5s" repeatCount="indefinite" />
+          {shimmer && <animateTransform attributeName="gradientTransform" type="translate" values="-400 0; 400 0; 400 0" keyTimes="0; 0.55; 1" dur="5s" repeatCount="indefinite" />}
         </linearGradient>
         <radialGradient id={`${id}-bean`} cx="0.35" cy="0.3" r="0.8">
           <stop offset="0" stopColor="#fff" stopOpacity="0.35" />
@@ -131,18 +131,28 @@ export function Label({ className = "" }: { className?: string }) {
         <Bean x={236} y={308} r={-30} s={1.05} gid={id} />
       </g>
 
-      {/* warning box */}
-      <g className="label-warning">
-        <rect x="44" y="384" width="312" height="116" rx="2" fill={PARCH} stroke={gold} strokeWidth="1.5" />
-        <rect x="44" y="384" width="312" height="116" rx="2" fill={`url(#${id}-age)`} />
-        <text x="200" y="408" textAnchor="middle" fontSize="15" fontWeight="800" fill={RED} fontFamily="var(--font-body), sans-serif">
+      {/* warning box: big, dark, evenly spaced type so it reads on the bottle (wording exactly as printed) */}
+      <g className="label-warning" textRendering="geometricPrecision">
+        <rect x="36" y="368" width="328" height="138" rx="2" fill={PARCH} stroke={gold} strokeWidth="1.5" />
+        <rect x="36" y="368" width="328" height="138" rx="2" fill={`url(#${id}-age)`} opacity="0.6" />
+        <rect x="41" y="373" width="318" height="128" rx="1" fill="none" stroke={SEPIA} strokeOpacity="0.45" strokeWidth="0.8" />
+        <path d="M58 391 H138 M262 391 H342" stroke={RED} strokeWidth="1.4" />
+        <text x="200" y="398" textAnchor="middle" fontSize="20" fontWeight="900" letterSpacing="2" fill={RED} fontFamily="var(--font-body), sans-serif">
           {heading}
         </text>
-        {lines.map((line, i) => (
-          <text key={line} x="58" y={428 + i * 15} fontSize="10.5" fill="#2a1d12" fontFamily="var(--font-body), sans-serif">
-            {line}
-          </text>
-        ))}
+        {lines.map((line, i) => {
+          const num = line.match(/^(d)s*/)?.[0] ?? "";
+          return (
+            <text key={line} x="52" y={424 + i * 19} fontSize="13" fontWeight="600" fill="#1c130b" fontFamily="var(--font-body), sans-serif">
+              {num && (
+                <tspan fill={RED} fontWeight="800">
+                  {num}
+                </tspan>
+              )}
+              {line.slice(num.length)}
+            </text>
+          );
+        })}
       </g>
 
       {/* star medallion */}
