@@ -10,6 +10,8 @@
  * The React overlay (components/Unboxing3D.tsx) drives it through the returned API and listens via onChange.
  */
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { UNBOX_BOXES, UNBOX_IMAGES as A, UNBOX_ITEMS as ITEMS } from "@/content/unboxing";
 
 export type UnboxPhase = "closed" | "opening" | "open" | "closing";
@@ -48,13 +50,15 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
   const fontVar = getComputedStyle(document.documentElement).getPropertyValue("--font-display").trim() || "Georgia, serif";
 
   /* ── renderer ── */
+  // phones: a little less resolution and lighter shadows, so it stays smooth on mid-range Android
+  const phone = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, phone ? 1.5 : 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = phone ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
   renderer.setClearColor(0x0b0907);
   const scene = new THREE.Scene();
   const fog = new THREE.Fog(0x0b0907, 11, 24);
@@ -65,7 +69,7 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
   const sun = new THREE.DirectionalLight(0xffe0b5, 1.05 * PI);
   sun.position.set(3.5, 7, 4.5);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(phone ? 1024 : 2048, phone ? 1024 : 2048);
   Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 20 });
   sun.shadow.bias = -0.0008;
   scene.add(sun);
@@ -687,7 +691,38 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     travel: buildTravel,
     mugRed: () => buildMug({ color: "#5a3a26", dot: "#c9a888" }),
   };
+  // corporate gifts come as glTF models (digitalized from the supplier's photos): loaded once each, then
+  // sized and centred exactly like the pieces built here, so they rise out of the box the same way
+  const gltf = new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath("/draco/"));
+  const models: Record<string, Promise<THREE.Group>> = {};
+  const loadModel = (src: string) => (models[src] ??= gltf.loadAsync(src).then((g) => g.scene));
+  const makeModelItem = (key: string, src: string) => {
+    const pivot = new THREE.Group();
+    pivot.userData = { key };
+    loadModel(src)
+      .then((scene) => {
+        const raw = scene.clone(true);
+        raw.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          m.castShadow = true;
+          m.receiveShadow = true;
+          (m.material as THREE.MeshStandardMaterial).envMapIntensity = 0.8;
+        });
+        const bb = new THREE.Box3().setFromObject(raw);
+        const size = bb.getSize(new THREE.Vector3()), center = bb.getCenter(new THREE.Vector3());
+        const sc = ITEMS[key].size / Math.max(size.x, size.y, size.z);
+        raw.scale.setScalar(sc);
+        raw.position.copy(center).multiplyScalar(-sc);
+        pivot.add(raw);
+        frame();
+      })
+      .catch((e) => console.error(`couldn't load ${src}`, e));
+    return pivot;
+  };
   const makeItem = (key: string) => {
+    const model = ITEMS[key].model;
+    if (model) return makeModelItem(key, model);
     const raw = BUILD[key]();
     const bb = new THREE.Box3().setFromObject(raw);
     const size = bb.getSize(new THREE.Vector3()), center = bb.getCenter(new THREE.Vector3());
@@ -952,6 +987,8 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
     flames.length = 0;
     const def = UNBOX_BOXES[i];
     const keys = custom ?? def.items;
+    // Build your own: fetch every gift model now, so a piece is ready the moment it's tapped
+    if (def.id === "build") Object.values(ITEMS).forEach((it) => it.model && void loadModel(it.model).catch(() => null));
     const big = keys.length > 7 || custom !== undefined;
     const noir = def.style === "noir";
     const W = noir ? (big ? 4.2 : 3.6) : 3.3, D = noir ? (big ? 3 : 2.7) : 2.4, H = noir ? 0.9 : 0.8;
@@ -977,6 +1014,9 @@ export function createUnboxing(canvas: HTMLCanvasElement, onChange: (v: UnboxVie
   // Every material is compiled in the background and drawn once while the box is still shut, with
   // the pieces shrunk inside it (the walls and lid hide them), so the GPU never stalls when it opens.
   const warmUp = async (mine: BoxState) => {
+    // gift models arrive over the network: wait for them, so they're prepared too
+    await Promise.all(mine.keys.map((k) => (ITEMS[k].model ? loadModel(ITEMS[k].model!).catch(() => null) : null)));
+    if (S !== mine || phase !== "closed") return;
     const hide = () => mine.items.forEach((p) => ((p.visible = false), p.position.set(0, 0, 0), p.scale.setScalar(1)));
     mine.items.forEach((p) => ((p.visible = true), p.position.set(0, mine.box.H * 0.3, 0), p.scale.setScalar(0.25)));
     try {

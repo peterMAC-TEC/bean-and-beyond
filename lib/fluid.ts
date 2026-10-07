@@ -313,7 +313,7 @@ export function createFluid(canvas: HTMLCanvasElement, opts: FluidOptions = {}):
   };
 
   const resize = () => {
-    const dpr = Math.min(window.devicePixelRatio || 1, mobile ? 1.5 : 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, mobile ? 1.35 : 2);
     const w = Math.round(canvas.clientWidth * dpr);
     const h = Math.round(canvas.clientHeight * dpr);
     if (!w || !h || (w === canvas.width && h === canvas.height)) return;

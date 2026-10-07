@@ -32,10 +32,20 @@ export const UNBOX_IMAGES: Record<string, { src: string; ar: number }> = {
   t_pouchPremium: { src: "/unboxing/t_pouchPremium.jpg", ar: 0.7619 },
   t_mithai: { src: "/unboxing/t_mithai.jpg", ar: 0.7314 },
   t_guide: { src: "/unboxing/t_guide.jpg", ar: 1.0326 },
+  // corporate gifts (from the supplier pack, digitalized in gift-box-builder/): product photos on white
+  g_tempBottle: { src: "/unboxing/gifts/RC-101.jpg", ar: 1 },
+  g_bambooFlask: { src: "/unboxing/gifts/RC-107.jpg", ar: 1 },
+  g_vacuumFlask: { src: "/unboxing/gifts/RC-113.jpg", ar: 1 },
+  g_corkDiary: { src: "/unboxing/gifts/RC-018.jpg", ar: 1 },
+  g_juteDiary: { src: "/unboxing/gifts/RC-019.jpg", ar: 1 },
+  g_planner: { src: "/unboxing/gifts/CX-04.jpg", ar: 1 },
+  g_notebook: { src: "/unboxing/gifts/CX-03.jpg", ar: 1 },
+  g_woodCalendar: { src: "/unboxing/gifts/CX-11.jpg", ar: 1 },
+  g_wallet: { src: "/unboxing/gifts/RC-142.jpg", ar: 1 },
 };
 
 /** product shots on white, shown whole in the details card (the others are crops of the styled box photos) */
-export const STUDIO_PHOTOS = new Set(["p_press", "p_travel", "p_mugRed", "p_coffeeArtisan", "p_coffeeFestive", "p_pouchPremium", "p_card700", "p_choc", "p_mithai"]);
+export const STUDIO_PHOTOS = new Set(["p_press", "p_travel", "p_mugRed", "p_coffeeArtisan", "p_coffeeFestive", "p_pouchPremium", "p_card700", "p_choc", "p_mithai", "g_tempBottle", "g_bambooFlask", "g_vacuumFlask", "g_corkDiary", "g_juteDiary", "g_planner", "g_notebook", "g_woodCalendar", "g_wallet"]);
 
 export interface UnboxItem {
   name: string;
@@ -46,8 +56,10 @@ export interface UnboxItem {
   size: number;
   /** resting turn, radians */
   rot: number;
-  /** price on its own, in rupees, for the Build-your-own box. Leave out until it's confirmed. */
+  /** price on its own, in rupees (kept for orders; never shown in the Build-your-own box) */
   price?: number;
+  /** a 3D model file (glTF) instead of a model built in code: the corporate gifts */
+  model?: string;
 }
 
 export const UNBOX_ITEMS: Record<string, UnboxItem> = {
@@ -70,6 +82,21 @@ export const UNBOX_ITEMS: Record<string, UnboxItem> = {
   travel: { name: "Insulated Thermos", photo: "p_travel", desc: "A black insulated thermos with a push-button flip lid that seals tight, so the coffee stays hot on the go.", facts: ["Insulated", "Push-button flip lid", "Leak-proof seal"], size: 1.1, rot: 0.35 },
   mugRed: { name: "Speckled Mug, Coffee Brown", photo: "p_mugRed", desc: "A matte speckled stoneware mug in a deep coffee brown.", facts: ["Matte speckled finish", "Stoneware look"], size: 0.95, rot: -0.45 },
 };
+
+/** corporate gifts for the Build-your-own box: chosen from the supplier's 267 products for how faithfully they
+ * come out in 3D (round drinkware shot straight on, flat desk pieces); models from gift-box-builder/ */
+export const GIFT_ITEMS: Record<string, UnboxItem> = {
+  tempBottle: { name: "Temperature Display Bottle", photo: "g_tempBottle", desc: "An insulated bottle whose lid shows the temperature of what's inside.", facts: ["Insulated","Temperature on the lid","About 250 mm tall"], size: 1.30, rot: 0, model: "/unboxing/gifts/RC-101.glb" },
+  bambooFlask: { name: "Bamboo Flask Bottle", photo: "g_bambooFlask", desc: "An insulated flask with a bamboo finish and a steel cap.", facts: ["Insulated","Bamboo finish","About 250 mm tall"], size: 1.30, rot: 0, model: "/unboxing/gifts/RC-107.glb" },
+  vacuumFlask: { name: "Vacuum Flask Bottle", photo: "g_vacuumFlask", desc: "A slim vacuum flask in deep navy that keeps drinks hot or cold.", facts: ["Vacuum insulated","About 250 mm tall"], size: 1.30, rot: 0, model: "/unboxing/gifts/RC-113.glb" },
+  corkDiary: { name: "Wood Finish Diary", photo: "g_corkDiary", desc: "A notebook with a wood-finish cover. A5 size.", facts: ["Wood / cork cover","A5"], size: 1.19, rot: 0, model: "/unboxing/gifts/RC-018.glb" },
+  juteDiary: { name: "Jute Diary", photo: "g_juteDiary", desc: "A jute-covered diary with a leather-look spine and strap.", facts: ["Jute cover","Strap closure","A5"], size: 1.19, rot: 0, model: "/unboxing/gifts/RC-019.glb" },
+  planner: { name: "Office Planner", photo: "g_planner", desc: "A black leather-look planner with a snap closure.", facts: ["Leather-look cover","Snap closure","A5"], size: 1.19, rot: 0, model: "/unboxing/gifts/CX-04.glb" },
+  notebook: { name: "Office Notebook", photo: "g_notebook", desc: "A black hardbound notebook with an elastic band.", facts: ["Hardbound","Elastic band","A5"], size: 1.19, rot: 0, model: "/unboxing/gifts/CX-03.glb" },
+  woodCalendar: { name: "Wooden Desk Calendar", photo: "g_woodCalendar", desc: "A perpetual desk calendar of wooden blocks: turn them to set the day and the month.", facts: ["Wooden blocks","Perpetual"], size: 1.02, rot: 0, model: "/unboxing/gifts/CX-11.glb" },
+  wallet: { name: "Leather Wallet", photo: "g_wallet", desc: "A brown leather-look wallet for him.", facts: ["Leather-look","Bi-fold"], size: 0.91, rot: 0, model: "/unboxing/gifts/RC-142.glb" },
+};
+Object.assign(UNBOX_ITEMS, GIFT_ITEMS);
 
 export interface UnboxBox {
   id: string;
@@ -94,6 +121,12 @@ export const UNBOX_BOXES: UnboxBox[] = [
 export const BUILD_ITEMS = [
   "press", "travel", "mugRed", "mugBlack", "mugCharcoal", "mugCream", "kulhadTeal", "kulhadLav",
   "coffeeArtisan", "coffeeFestive", "pouchPremium", "choc", "mithai", "nuts", "diya", "card700",
+  ...Object.keys(GIFT_ITEMS),
+];
+/** the Build-your-own picker shows the pieces in these two groups */
+export const BUILD_GROUPS: { label: string; items: string[] }[] = [
+  { label: "Coffee & festive", items: BUILD_ITEMS.filter((k) => !(k in GIFT_ITEMS)) },
+  { label: "Corporate gifts", items: Object.keys(GIFT_ITEMS) },
 ];
 export const BUILD_MAX_PIECES = 9;
 /** the store spec: nothing on the site costs more than ₹1,000 */

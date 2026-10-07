@@ -293,3 +293,9 @@ a.bg-glow:active, button.bg-glow:active { transform: translateY(1px); }
   .crate, .crate-bottle, .crate-lid, .crate-lid.is-closed, .crate-ship, .crate-label { transition-duration: .01s !important; transition-delay: 0s !important; }
   .crate-done { animation: none; }
 }
+
+/* phones: keep the film grain still and the bokeh blend simple; both repainted the whole screen every frame */
+@media (pointer: coarse), (max-width: 767px) {
+  .bb-grain { animation: none; }
+  .bokeh { mix-blend-mode: normal; }
+}
