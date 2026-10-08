@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Instant Pouch Label</title>
+<!--
+  Bean & Beyond instant coffee: the pouch label (front + back) and a 3D mockup of the
+  matte black stand-up zip pouch wearing it. Open this file in a browser.
+  Everything you might need to change is in LABEL below (lines marked TODO are placeholders).
+  Labels print at 90 × 120 mm; the PNG downloads are 1536 × 2048 px (≈ 430 dpi at that size).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #0b0907; --panel: #14100c; --line: rgba(220,192,138,.16); --cream: #efe4cc; --muted: #9b8c76; --gold: #dcc08a; --glow: #e9c46a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--ink); color: var(--cream); font-family: "Barlow Condensed", sans-serif; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 100svh; }
+  #stage { position: relative; min-height: 70svh; }
+  #stage canvas { display: block; width: 100%; height: 100%; position: absolute; inset: 0; cursor: grab; }
+  #stage canvas:active { cursor: grabbing; }
+  .hint { position: absolute; left: 20px; bottom: 18px; font: 500 11px "JetBrains Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); pointer-events: none; }
+  aside { border-left: 1px solid var(--line); background: var(--panel); padding: 28px 24px 40px; overflow-y: auto; }
+  .kicker { font: 500 11px "JetBrains Mono", monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  .kicker b { color: var(--glow); font-weight: 500; }
+  h1 { font-weight: 300; font-size: 44px; line-height: .95; text-transform: uppercase; margin: 10px 0 18px; }
+  .labels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  figure { margin: 0; }
+  figure img { width: 100%; display: block; filter: drop-shadow(0 10px 18px rgba(0,0,0,.6)); }
+  figcaption { font: 500 10px "JetBrains Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-top: 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+  button { font: 500 15px "Barlow Condensed", sans-serif; letter-spacing: .04em; text-transform: uppercase; color: var(--gold); background: transparent; border: 1px solid rgba(220,192,138,.4); border-radius: 2px; padding: 9px 14px; cursor: pointer; }
+  button:hover { background: var(--glow); color: var(--ink); border-color: var(--glow); }
+  button.on { background: rgba(233,196,106,.12); color: var(--glow); }
+  .note { margin-top: 22px; font-size: 15px; line-height: 1.45; color: var(--muted); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid var(--line); } #stage { min-height: 78svh; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<main>
+  <div id="stage"><p class="hint">Drag to turn the pouch · scroll to zoom</p></div>
+  <aside>
+    <p class="kicker">Packaging <b>// Instant</b></p>
+    <h1>Instant coffee pouch label</h1>
+    <div class="labels">
+      <figure><img id="frontImg" alt="Front label" /><figcaption>Front · 90 × 120 mm</figcaption></figure>
+      <figure><img id="backImg" alt="Back label" /><figcaption>Back · 90 × 120 mm</figcaption></figure>
+    </div>
+    <div class="row">
+      <button id="viewFront" class="on">Front</button>
+      <button id="viewBack">Back</button>
+    </div>
+    <div class="row">
+      <button id="dlFront">Download front PNG</button>
+      <button id="dlBack">Download back PNG</button>
+      <button id="dlMock">Download mockup PNG</button>
+    </div>
+    <p class="note">Fields in the back panel left as blanks (MRP, FSSAI licence, dates, ingredients, address) are placeholders. Fill them in before printing.</p>
+  </aside>
+</main>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
+
+// ============================================================ the words ====
+const LABEL = {
+  brand: "BEAN & BEYOND",
+  established: "2026",
+  product: "INSTANT COFFEE",
+  descriptor: "DARK ROAST  ·  INSTANT GRANULES",
+  topLine: "HAND-CRAFTED  ·  BATCH NO. 01  ·  VIETNAMESE COFFEE",
+  net: "100 g", // TODO: real net weight
+  warning: [
+    // worded exactly as on the bottle label
+    "(1) Consuming this causes extreme alertness, sudden",
+    "bursts of productivity, and an urge to conquer the day.",
+    "(2) Contains 0% alcohol. 100% pure focus.",
+  ],
+  howTo: ["One heaped spoon", "150 ml hot water", "Stir 10 seconds", "Condensed milk to taste"],
+  ingredients: "__________________________", // TODO
+  storage: "Store in a cool, dry place. Use a dry spoon and seal the zip after every use.",
+  facts: [
+    ["Net quantity", "100 g"], // TODO
+    ["MRP (incl. of all taxes)", "₹ _______"], // TODO
+    ["Batch no.", "01"],
+    ["Packed on", "__ / __ / ____"], // TODO
+    ["Best before", "__ months from packing"], // TODO
+    ["FSSAI Lic. No.", "______________"], // TODO
+    ["Mfd. & packed by", "Bean & Beyond, Bengaluru, Karnataka"],
+    ["Address", "______________________________"], // TODO
+    ["Customer care", "+91 99725 69420 · adityapeter734@gmail.com"],
+  ],
+  tagline: "It's not what you think it is.",
+};
+
+const F = { display: '"Playfair Display", serif', hud: '"Barlow Condensed", sans-serif', mono: '"JetBrains Mono", monospace' };
+await Promise.race([
+  Promise.all(['700 100px "Playfair Display"', '600 100px "Playfair Display"', 'italic 600 100px "Playfair Display"', '500 100px "Barlow Condensed"', '600 100px "Barlow Condensed"', '700 100px "Barlow Condensed"', '500 40px "JetBrains Mono"'].map((f) => document.fonts.load(f))),
+  new Promise((r) => setTimeout(r, 4000)),
+]);
+
+// ============================================================ the label ====
+// Drawn twice with the same code: once in colour, once as a white-on-black foil mask
+// (the foil becomes real polished metal on the 3D pouch).
+const W = 1536, H = 2048;
+const canvas = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return [c, c.getContext("2d")]; };
+
+function labelPath(g, inset) {
+  const l = 40 + inset, r = W - 40 - inset, t = 150 + inset, b = H - 60 - inset, n = 90 - inset * 0.5, arch = 110;
+  g.beginPath();
+  g.moveTo(l + n, t);
+  g.lineTo(W / 2 - 300, t);
+  g.bezierCurveTo(W / 2 - 200, t, W / 2 - 170, t - arch, W / 2, t - arch);
+  g.bezierCurveTo(W / 2 + 170, t - arch, W / 2 + 200, t, W / 2 + 300, t);
+  g.lineTo(r - n, t);
+  g.quadraticCurveTo(r - n, t + n, r, t + n);
+  g.lineTo(r, b - n);
+  g.quadraticCurveTo(r - n, b - n, r - n, b);
+  g.lineTo(l + n, b);
+  g.quadraticCurveTo(l + n, b - n, l, b - n);
+  g.lineTo(l, t + n);
+  g.quadraticCurveTo(l + n, t + n, l + n, t);
+  g.closePath();
+}
+
+function flourish(g, x, y, dir, s = 1) {
+  g.save(); g.translate(x, y); g.scale(dir * s, s);
+  g.beginPath();
+  g.moveTo(0, 0); g.bezierCurveTo(60, -40, 140, -40, 190, 0); g.bezierCurveTo(220, 25, 260, 20, 270, -5);
+  g.moveTo(40, 4); g.bezierCurveTo(90, 30, 150, 30, 180, 10);
+  g.moveTo(190, 0); g.bezierCurveTo(200, -30, 240, -45, 262, -28);
+  g.stroke();
+  g.beginPath(); g.arc(272, -8, 7, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
+
+function bean(g, x, y, rot, s) {
+  g.save(); g.translate(x, y); g.rotate(rot); g.scale(s, s);
+  const grd = g.createRadialGradient(-20, -30, 10, 0, 0, 110);
+  grd.addColorStop(0, "#e9cf98"); grd.addColorStop(0.55, "#b88d50"); grd.addColorStop(1, "#5e3c1c");
+  g.fillStyle = grd;
+  g.beginPath(); g.ellipse(0, 0, 70, 100, 0, 0, Math.PI * 2); g.fill();
+  g.save(); g.clip();
+  g.strokeStyle = "rgba(60,36,16,.55)"; g.lineWidth = 2;
+  for (let i = -100; i < 110; i += 9) { g.beginPath(); g.ellipse(40, i, 70, 30, 0.4, Math.PI * 0.55, Math.PI * 1.15); g.stroke(); }
+  g.restore();
+  g.strokeStyle = "#3a2210"; g.lineWidth = 5;
+  g.beginPath(); g.ellipse(0, 0, 70, 100, 0, 0, Math.PI * 2); g.stroke();
+  g.lineWidth = 9; g.lineCap = "round";
+  g.beginPath(); g.moveTo(-4, -92); g.bezierCurveTo(-34, -30, 30, 30, 4, 92); g.stroke();
+  g.strokeStyle = "rgba(255,240,200,.5)"; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(8, -88); g.bezierCurveTo(-20, -30, 42, 30, 16, 88); g.stroke();
+  g.restore();
+}
+
+function leaf(g, x, y, rot, s) {
+  g.save(); g.translate(x, y); g.rotate(rot); g.scale(s, s);
+  const grd = g.createLinearGradient(0, -40, 0, 40);
+  grd.addColorStop(0, "#d8bd86"); grd.addColorStop(1, "#7d5a2e");
+  g.fillStyle = grd;
+  g.beginPath(); g.moveTo(0, 0); g.bezierCurveTo(70, -70, 210, -60, 280, 0); g.bezierCurveTo(210, 60, 70, 70, 0, 0); g.fill();
+  g.strokeStyle = "#3e2712"; g.lineWidth = 4; g.stroke();
+  g.lineWidth = 3; g.beginPath(); g.moveTo(6, 0); g.lineTo(272, 0);
+  for (let i = 40; i < 250; i += 34) { g.moveTo(i, 0); g.quadraticCurveTo(i + 20, -18, i + 34, -36 + i * 0.06); g.moveTo(i, 0); g.quadraticCurveTo(i + 20, 18, i + 34, 36 - i * 0.06); }
+  g.stroke();
+  g.restore();
+}
+
+// an engraved antique spoon heaped with granules, the hero of the instant label
+function spoon(g, x, y, rot, s) {
+  g.save(); g.translate(x, y); g.rotate(rot); g.scale(s, s);
+  // handle
+  const hg = g.createLinearGradient(-20, 0, 20, 0);
+  hg.addColorStop(0, "#8f7a56"); hg.addColorStop(0.45, "#efe2c4"); hg.addColorStop(1, "#7a6545");
+  g.fillStyle = hg;
+  g.beginPath();
+  g.moveTo(-16, 96); g.bezierCurveTo(-10, 200, -12, 330, -26, 410);
+  g.bezierCurveTo(-30, 450, 30, 450, 26, 410);
+  g.bezierCurveTo(12, 330, 10, 200, 16, 96); g.closePath(); g.fill();
+  g.strokeStyle = "#3e2712"; g.lineWidth = 4; g.stroke();
+  g.strokeStyle = "rgba(62,39,18,.45)"; g.lineWidth = 2;
+  for (let i = 120; i < 420; i += 12) { g.beginPath(); g.moveTo(-9, i); g.lineTo(-3, i + 6); g.stroke(); }
+  // bowl
+  const bg = g.createRadialGradient(-26, -40, 8, 0, 0, 120);
+  bg.addColorStop(0, "#f6ecd2"); bg.addColorStop(0.6, "#c7b28a"); bg.addColorStop(1, "#7d6844");
+  g.fillStyle = bg;
+  g.beginPath(); g.ellipse(0, 0, 76, 108, 0, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = "#3e2712"; g.lineWidth = 5; g.stroke();
+  // the heap of granules inside the bowl
+  g.save();
+  g.beginPath(); g.ellipse(0, 4, 64, 94, 0, 0, Math.PI * 2); g.clip();
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 260; i++) {
+    const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd());
+    const gx = Math.cos(a) * r * 62, gy = Math.sin(a) * r * 92 + 6;
+    const sz = 5 + rnd() * 8;
+    g.fillStyle = ["#2a170b", "#4a2c14", "#6b4520", "#3a2210"][i % 4];
+    g.beginPath();
+    for (let k = 0; k < 5; k++) { const b = (k / 5) * Math.PI * 2 + rnd(); g.lineTo(gx + Math.cos(b) * sz * (0.6 + rnd() * 0.5), gy + Math.sin(b) * sz * (0.6 + rnd() * 0.5)); }
+    g.closePath(); g.fill();
+    if (i % 3 === 0) { g.fillStyle = "rgba(255,236,200,.35)"; g.fillRect(gx - 2, gy - 3, 2.5, 2.5); }
+  }
+  g.restore();
+  g.restore();
+}
+
+function crest(g, cx, cy, s, ink) {
+  g.save(); g.translate(cx, cy); g.scale(s, s);
+  g.lineWidth = 6; g.beginPath(); g.arc(0, 0, 120, 0, Math.PI * 2); g.stroke();
+  g.lineWidth = 2.5; g.beginPath(); g.arc(0, 0, 102, 0, Math.PI * 2); g.stroke();
+  g.beginPath();
+  g.moveTo(-48, -40); g.lineTo(-34, -74); g.lineTo(-16, -50); g.lineTo(0, -86); g.lineTo(16, -50); g.lineTo(34, -74); g.lineTo(48, -40);
+  g.closePath(); g.fill();
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = `600 40px ${F.display}`; g.fillText("E S T D", 0, 6);
+  g.font = `700 54px ${F.display}`; g.fillText(LABEL.established, 0, 58);
+  g.lineWidth = 5;
+  flourish(g, -150, 30, -1, 1.25);
+  flourish(g, 150, 30, 1, 1.25);
+  g.restore();
+}
+
+function diamondRule(g, y, half) {
+  const cx = W / 2;
+  g.lineWidth = 4;
+  g.beginPath(); g.moveTo(cx - half, y); g.lineTo(cx - 60, y); g.moveTo(cx + 60, y); g.lineTo(cx + half, y); g.stroke();
+  g.beginPath(); g.moveTo(cx, y - 26); g.lineTo(cx + 34, y); g.lineTo(cx, y + 26); g.lineTo(cx - 34, y); g.closePath(); g.fill();
+}
+
+function stock(g, foil) {
+  labelPath(g, 0);
+  if (foil) { g.fillStyle = "#000"; g.fill(); return; }
+  const paper = g.createRadialGradient(W / 2, H * 0.45, 200, W / 2, H / 2, H * 0.75);
+  paper.addColorStop(0, "#1a1511"); paper.addColorStop(1, "#080605");
+  g.fillStyle = paper; g.fill();
+  g.save(); labelPath(g, 0); g.clip();
+  const [nc, ng] = canvas(256, 256);
+  const ni = ng.createImageData(256, 256);
+  for (let i = 0; i < ni.data.length; i += 4) { ni.data[i] = 255; ni.data[i + 1] = 240; ni.data[i + 2] = 210; ni.data[i + 3] = Math.random() * 18; }
+  ng.putImageData(ni, 0, 0);
+  g.fillStyle = g.createPattern(nc, "repeat"); g.fillRect(0, 0, W, H);
+  g.restore();
+}
+
+function frame(g, ink) {
+  g.strokeStyle = ink.gold; g.fillStyle = ink.gold;
+  g.lineWidth = 12; labelPath(g, 0); g.stroke();
+  g.lineWidth = 3; labelPath(g, 34); g.stroke();
+  g.setLineDash([2, 14]); g.lineCap = "round"; g.lineWidth = 5; labelPath(g, 52); g.stroke(); g.setLineDash([]);
+}
+
+function vegMark(g, x, y, size) {
+  g.fillStyle = "#fff"; g.fillRect(x - 8, y - 8, size + 16, size + 16);
+  g.strokeStyle = "#0b8a3a"; g.lineWidth = size * 0.09; g.strokeRect(x + size * 0.045, y + size * 0.045, size * 0.91, size * 0.91);
+  g.fillStyle = "#0b8a3a"; g.beginPath(); g.arc(x + size / 2, y + size / 2, size * 0.26, 0, Math.PI * 2); g.fill();
+}
+
+function drawFront(g, ink) {
+  const foil = ink.foil, cx = W / 2;
+  stock(g, foil);
+  frame(g, ink);
+  crest(g, cx, 210, 1, ink);
+
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.save(); g.translate(cx, 488); g.scale(0.72, 1);
+  g.font = `700 224px ${F.display}`; g.fillText(LABEL.brand, 0, 0, (W - 260) / 0.72);
+  g.restore();
+  diamondRule(g, 616, W / 2 - 170);
+  g.font = `600 44px ${F.display}`; g.fillText(LABEL.topLine, cx, 688);
+
+  // maroon band and the parchment oval with the engraving
+  const oy = 1010, rx = 430, ry = 272;
+  if (!foil) {
+    const band = g.createLinearGradient(0, oy - 150, 0, oy + 150);
+    band.addColorStop(0, "#3a1714"); band.addColorStop(0.5, "#5a2420"); band.addColorStop(1, "#3a1714");
+    g.fillStyle = band; g.fillRect(96, oy - 140, W - 192, 280);
+  }
+  g.fillStyle = ink.gold;
+  g.fillRect(96, oy - 146, W - 192, 6); g.fillRect(96, oy + 140, W - 192, 6);
+  g.lineWidth = 10; g.beginPath(); g.ellipse(cx, oy, rx + 30, ry + 30, 0, 0, Math.PI * 2); g.stroke();
+  g.lineWidth = 3; g.beginPath(); g.ellipse(cx, oy, rx, ry, 0, 0, Math.PI * 2); g.stroke();
+  if (foil) {
+    g.fillStyle = "#000"; g.beginPath(); g.ellipse(cx, oy, rx - 4, ry - 4, 0, 0, Math.PI * 2); g.fill();
+  } else {
+    const parch = g.createRadialGradient(cx, oy - 60, 40, cx, oy, 460);
+    parch.addColorStop(0, "#f3e3bd"); parch.addColorStop(0.7, "#d9bd86"); parch.addColorStop(1, "#a9874e");
+    g.fillStyle = parch; g.beginPath(); g.ellipse(cx, oy, rx - 4, ry - 4, 0, 0, Math.PI * 2); g.fill();
+    g.save(); g.beginPath(); g.ellipse(cx, oy, rx - 4, ry - 4, 0, 0, Math.PI * 2); g.clip();
+    leaf(g, cx - 60, oy + 50, Math.PI + 0.45, 1.05);
+    leaf(g, cx + 60, oy + 60, -0.4, 1.05);
+    leaf(g, cx - 40, oy - 40, Math.PI + 1.0, 0.9);
+    leaf(g, cx + 50, oy - 50, -1.0, 0.85);
+    for (const [dx, dy] of [[150, -200], [190, -175], [168, -150], [210, -205]]) {
+      const grd = g.createRadialGradient(cx + dx - 8, oy + dy - 8, 2, cx + dx, oy + dy, 24);
+      grd.addColorStop(0, "#d9b888"); grd.addColorStop(1, "#6b4520");
+      g.fillStyle = grd; g.beginPath(); g.arc(cx + dx, oy + dy, 24, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "#3e2712"; g.lineWidth = 3; g.stroke();
+    }
+    bean(g, cx + 210, oy + 70, -0.6, 0.95);
+    bean(g, cx + 300, oy - 20, 0.4, 0.8);
+    bean(g, cx - 270, oy + 80, 0.7, 0.85);
+    spoon(g, cx - 60, oy - 10, -0.95, 1.08);
+    // a few granules spilled from the spoon
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 26; i++) {
+      g.fillStyle = i % 2 ? "#3a2210" : "#5e3c1c";
+      const gx = cx - 230 + rnd() * 160, gy = oy + 90 + rnd() * 110, sz = 4 + rnd() * 6;
+      g.beginPath(); for (let k = 0; k < 5; k++) { const b = (k / 5) * Math.PI * 2 + rnd(); g.lineTo(gx + Math.cos(b) * sz, gy + Math.sin(b) * sz); } g.fill();
+    }
+    g.restore();
+  }
+
+  // the product name
+  g.fillStyle = ink.gold; g.strokeStyle = ink.gold;
+  g.save(); g.translate(cx, 1416); g.scale(0.78, 1);
+  g.font = `700 172px ${F.display}`; g.fillText(LABEL.product, 0, 0, (W - 300) / 0.78);
+  g.restore();
+  g.font = `600 42px ${F.display}`; g.fillText(LABEL.descriptor, cx, 1510);
+
+  // warning panel (the brand's signature joke, same words as the bottle)
+  const wy = 1572, wh = 214, wx = 190, ww = W - 380;
+  if (!foil) {
+    g.fillStyle = "#ecdcb4"; g.fillRect(wx, wy, ww, wh);
+    const age = g.createLinearGradient(wx, wy, wx + ww, wy + wh);
+    age.addColorStop(0, "rgba(120,80,30,0)"); age.addColorStop(1, "rgba(120,80,30,.22)");
+    g.fillStyle = age; g.fillRect(wx, wy, ww, wh);
+    g.fillStyle = "#b8251a"; g.font = `800 50px ${F.hud}`; g.fillText("WARNING:", cx, wy + 46);
+    g.fillStyle = "#24170d"; g.font = `500 34px ${F.hud}`;
+    LABEL.warning.forEach((l, i) => g.fillText(l, cx, wy + 100 + i * 40));
+  }
+  g.fillStyle = ink.gold; g.strokeStyle = ink.gold; g.lineWidth = 6; g.strokeRect(wx, wy, ww, wh);
+
+  // bottom row: net weight, star medallion, veg mark
+  const by = 1858;
+  g.textAlign = "left"; g.font = `600 46px ${F.display}`;
+  g.fillText(`NET WT. ${LABEL.net}`, 196, by);
+  g.textAlign = "center";
+  g.lineWidth = 4; g.beginPath(); g.arc(cx, by, 38, 0, Math.PI * 2); g.stroke();
+  g.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? 11 : 25; g.lineTo(cx + Math.cos(a) * rr, by + Math.sin(a) * rr); }
+  g.closePath(); g.fill();
+  if (!foil) vegMark(g, W - 196 - 64, by - 32, 64);
+}
+
+function wrap(g, text, x, y, maxW, lh) {
+  const words = text.split(" ");
+  let line = "";
+  for (const w of words) {
+    const t = line ? line + " " + w : w;
+    if (g.measureText(t).width > maxW && line) { g.fillText(line, x, y); y += lh; line = w; } else line = t;
+  }
+  if (line) g.fillText(line, x, y);
+  return y + lh;
+}
+
+function drawBack(g, ink) {
+  const foil = ink.foil, cx = W / 2, cream = "#eadfc6";
+  stock(g, foil);
+  frame(g, ink);
+  crest(g, cx, 200, 0.82, ink);
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.save(); g.translate(cx, 392); g.scale(0.72, 1);
+  g.font = `700 132px ${F.display}`; g.fillText(LABEL.brand, 0, 0);
+  g.restore();
+  g.font = `600 40px ${F.display}`; g.fillText(`${LABEL.product}  ·  ${LABEL.net}`, cx, 470);
+  diamondRule(g, 526, W / 2 - 200);
+
+  const L = 170, R = W - 170;
+  const heading = (t, y) => { g.fillStyle = ink.gold; g.textAlign = "left"; g.font = `600 38px ${F.hud}`; g.fillText(t.split("").join(String.fromCharCode(8202)), L, y); };
+
+  // how to make it: four numbered steps
+  heading("HOW TO MAKE IT", 600);
+  const colW = (R - L) / 4;
+  LABEL.howTo.forEach((s, i) => {
+    const x = L + i * colW;
+    g.strokeStyle = ink.gold; g.lineWidth = 2;
+    if (i) { g.beginPath(); g.moveTo(x, 650); g.lineTo(x, 790); g.stroke(); }
+    g.fillStyle = ink.gold; g.textAlign = "left"; g.font = `700 64px ${F.display}`; g.fillText(String(i + 1).padStart(2, "0"), x + (i ? 24 : 0), 690);
+    if (!foil) { g.fillStyle = cream; g.font = `500 38px ${F.hud}`; wrap(g, s, x + (i ? 24 : 0), 752, colW - 40, 40); }
+  });
+
+  // ingredients and storage
+  heading("INGREDIENTS", 870);
+  let y = 920;
+  if (!foil) { g.fillStyle = cream; g.font = `500 38px ${F.hud}`; y = wrap(g, LABEL.ingredients, L, 920, R - L, 44); }
+  heading("STORAGE", y + 24);
+  if (!foil) { g.fillStyle = cream; g.font = `500 38px ${F.hud}`; y = wrap(g, LABEL.storage, L, y + 74, R - L, 44); } else y += 120;
+
+  // the statutory panel, on parchment
+  const py = Math.max(y + 20, 1150), ph = 1700 - py;
+  if (!foil) {
+    g.fillStyle = "#ecdcb4"; g.fillRect(L - 20, py, R - L + 40, ph);
+    const age = g.createLinearGradient(L, py, R, py + ph);
+    age.addColorStop(0, "rgba(120,80,30,0)"); age.addColorStop(1, "rgba(120,80,30,.2)");
+    g.fillStyle = age; g.fillRect(L - 20, py, R - L + 40, ph);
+    const rowH = (ph - 40) / LABEL.facts.length;
+    LABEL.facts.forEach(([k, v], i) => {
+      const ry = py + 20 + rowH * (i + 0.5);
+      if (i) { g.strokeStyle = "rgba(90,61,34,.3)"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(L, ry - rowH / 2); g.lineTo(R, ry - rowH / 2); g.stroke(); }
+      g.textAlign = "left"; g.fillStyle = "#5a3d22"; g.font = `600 32px ${F.hud}`; g.fillText(k.toUpperCase(), L + 4, ry);
+      g.fillStyle = "#1c130b"; g.font = `500 34px ${F.hud}`; g.fillText(v, L + 420, ry, R - L - 430);
+    });
+  }
+  g.strokeStyle = ink.gold; g.lineWidth = 5; g.strokeRect(L - 20, py, R - L + 40, ph);
+
+  // bottom: veg mark, tagline, barcode space
+  const by = 1830;
+  if (!foil) {
+    vegMark(g, L, by - 40, 72);
+    g.fillStyle = "#fff"; g.fillRect(R - 330, by - 70, 330, 140);
+    g.fillStyle = "#777"; g.textAlign = "center"; g.font = `500 22px ${F.mono}`; g.fillText("BARCODE", R - 165, by);
+  }
+  g.fillStyle = ink.gold; g.textAlign = "center"; g.font = `italic 600 44px ${F.display}`;
+  g.fillText(LABEL.tagline, cx - 60, by);
+}
+
+function makeLabel(draw) {
+  const [cc, cg] = canvas(W, H);
+  const foil = cg.createLinearGradient(0, 0, W, H * 0.6);
+  ["#7a5a26", "#e9cf8e", "#a37c3a", "#fff0c2", "#b48c45", "#f2d894", "#7f5f2a"].forEach((c, i, a) => foil.addColorStop(i / (a.length - 1), c));
+  draw(cg, { gold: foil, foil: false });
+  const [mc, mg] = canvas(W, H);
+  mg.fillStyle = "#000"; mg.fillRect(0, 0, W, H);
+  draw(mg, { gold: "#fff", foil: true });
+  return { color: cc, foil: mc };
+}
+
+const front = makeLabel(drawFront);
+const back = makeLabel(drawBack);
+document.getElementById("frontImg").src = front.color.toDataURL("image/png");
+document.getElementById("backImg").src = back.color.toDataURL("image/png");
+
+// ============================================================ the pouch ====
+// Matte black stand-up zip pouch, 14 × 21 cm (1 unit = 10 cm).
+const PW = 1.4, PH = 2.1;
+const TX = 1400, TY = 2100; // panel textures: 10 px per mm
+const LBL = { x: 250, y: 500, w: 900, h: 1200 }; // label on the panel, in texture px
+const ZIP = 300, NOTCH = 215, SEAL = 120, FIN = 46;
+
+// small value noise for the film and the wrinkles
+const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
+const vnoise = (x, y) => {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+};
+
+function panelTextures(label, side) {
+  // colour: matte black film, rounded top corners and tear notches cut out (alpha)
+  const [mc, mg] = canvas(TX, TY);
+  mg.fillStyle = "#0c0c0e"; mg.beginPath();
+  const r = 70;
+  mg.moveTo(0, r); mg.quadraticCurveTo(0, 0, r, 0); mg.lineTo(TX - r, 0); mg.quadraticCurveTo(TX, 0, TX, r);
+  mg.lineTo(TX, NOTCH - 14); mg.lineTo(TX - 26, NOTCH); mg.lineTo(TX, NOTCH + 14);
+  mg.lineTo(TX, TY); mg.lineTo(0, TY);
+  mg.lineTo(0, NOTCH + 14); mg.lineTo(26, NOTCH); mg.lineTo(0, NOTCH - 14);
+  mg.closePath(); mg.fill();
+  // printed fine text on the top seal and a faint "tear here"
+  mg.fillStyle = "rgba(220,192,138,.22)"; mg.font = `500 18px ${F.mono}`; mg.textAlign = "left";
+  mg.fillText("TEAR HERE ›", 40, NOTCH + 6);
+  if (side === "back") { mg.textAlign = "right"; mg.fillText("‹ TEAR HERE", TX - 40, NOTCH + 6); }
+  mg.drawImage(label.color, LBL.x, LBL.y, LBL.w, LBL.h);
+  const map = new THREE.CanvasTexture(mc);
+  map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 8;
+
+  // label masks at panel scale
+  const [pc, pg] = canvas(TX, TY); // paper (the sticker)
+  pg.fillStyle = "#000"; pg.fillRect(0, 0, TX, TY);
+  pg.save(); pg.translate(LBL.x, LBL.y); pg.scale(LBL.w / W, LBL.h / H); labelPath(pg, 0); pg.fillStyle = "#fff"; pg.fill(); pg.restore();
+  const [fc, fg] = canvas(TX, TY); // foil
+  fg.fillStyle = "#000"; fg.fillRect(0, 0, TX, TY);
+  fg.drawImage(label.foil, LBL.x, LBL.y, LBL.w, LBL.h);
+  const [bc, bgc] = canvas(TX, TY); // softened copies for the emboss
+  bgc.filter = "blur(2px)"; bgc.drawImage(pc, 0, 0);
+  const [fbc, fbg] = canvas(TX, TY);
+  fbg.filter = "blur(1.5px)"; fbg.drawImage(fc, 0, 0);
+  const paper = pg.getImageData(0, 0, TX, TY).data, foilD = fg.getImageData(0, 0, TX, TY).data;
+  const paperB = bgc.getImageData(0, 0, TX, TY).data, foilB = fbg.getImageData(0, 0, TX, TY).data;
+
+  // roughness (G) and metalness (B): soft-touch film ~0.62, paper 0.8, foil polished metal
+  const [oc, og] = canvas(TX, TY);
+  const orm = og.createImageData(TX, TY);
+  const hgt = new Float32Array(TX * TY);
+  for (let y = 0; y < TY; y++) {
+    for (let x = 0; x < TX; x++) {
+      const i = y * TX + x, p = i * 4;
+      const pp = paper[p] / 255, ff = foilD[p] / 255;
+      const n = vnoise(x * 0.35, y * 0.35) * 0.6 + vnoise(x * 1.3, y * 1.3) * 0.4;
+      let rough = 0.6 + (n - 0.5) * 0.08;
+      rough = rough * (1 - pp) + (0.8 + (n - 0.5) * 0.06) * pp;
+      rough = rough * (1 - ff) + 0.32 * ff;
+      orm.data[p] = 255; orm.data[p + 1] = rough * 255; orm.data[p + 2] = ff * 255; orm.data[p + 3] = 255;
+
+      // height: film grain, heat-seal ridges, zipper track, sticker edge, embossed foil
+      let h = (n - 0.5) * 0.35;
+      if (y < SEAL) h += Math.sin(y * 0.45) * 0.22 + 0.4;
+      if (x < FIN || x > TX - FIN) h += Math.sin(x * 0.45) * 0.2;
+      const dz1 = y - (ZIP - 9), dz2 = y - (ZIP + 9);
+      h += 2.4 * (Math.exp(-dz1 * dz1 / 18) + Math.exp(-dz2 * dz2 / 18));
+      h += (paperB[p] / 255) * 1.1 + (foilB[p] / 255) * 0.9;
+      hgt[i] = h;
+    }
+  }
+  og.putImageData(orm, 0, 0);
+  const ormTex = new THREE.CanvasTexture(oc); ormTex.anisotropy = 8;
+
+  // height → normal map
+  const [nc, ng] = canvas(TX, TY);
+  const nd = ng.createImageData(TX, TY);
+  const s = 1.4;
+  for (let y = 0; y < TY; y++) {
+    for (let x = 0; x < TX; x++) {
+      const i = y * TX + x;
+      const l = hgt[i - (x > 0 ? 1 : 0)], rr = hgt[i + (x < TX - 1 ? 1 : 0)];
+      const u = hgt[i - (y > 0 ? TX : 0)], d = hgt[i + (y < TY - 1 ? TX : 0)];
+      let nx = (l - rr) * s, ny = (d - u) * s, nz = 1;
+      const len = Math.hypot(nx, ny, nz);
+      const p = i * 4;
+      nd.data[p] = (nx / len * 0.5 + 0.5) * 255; nd.data[p + 1] = (ny / len * 0.5 + 0.5) * 255; nd.data[p + 2] = (nz / len * 0.5 + 0.5) * 255; nd.data[p + 3] = 255;
+    }
+  }
+  ng.putImageData(nd, 0, 0);
+  const normal = new THREE.CanvasTexture(nc); normal.anisotropy = 8;
+  return { map, ormTex, normal };
+}
+
+// the puffed shape of a filled pouch: flat fins at the sides and top, fullest low down
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const finU = FIN / TX;
+const across = (u) => Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0, (u - finU) / (1 - 2 * finU)))), 0.5);
+const downV = (v) => (0.22 + 0.14 * (1 - smooth(0, 0.32, v))) * (1 - smooth(0.6, 0.86, v));
+function depthAt(u, v) {
+  let d = across(u) * downV(v);
+  // soft wrinkles: diagonal creases near the side seams and where the bulge flattens into the zip
+  const edge = 1 - smooth(0.04, 0.3, Math.min(u, 1 - u));
+  const trans = smooth(0.55, 0.72, v) * (1 - smooth(0.82, 0.9, v));
+  const crease = Math.abs(vnoise(u * 7 + v * 4, v * 11 - u * 3) - 0.5) * 2;
+  d -= (1 - crease) * 0.014 * (edge * 0.9 + trans * 0.8 + 0.1) * (d > 0.002 ? 1 : 0);
+  d += (vnoise(u * 3, v * 4) - 0.5) * 0.006 * (d > 0.002 ? 1 : 0);
+  return Math.max(0, d);
+}
+
+function panelGeometry() {
+  const NU = 140, NV = 210;
+  const pos = [], uv = [], idx = [];
+  for (let j = 0; j <= NV; j++) {
+    for (let i = 0; i <= NU; i++) {
+      const u = i / NU, v = j / NV;
+      pos.push((u - 0.5) * PW, v * PH, depthAt(u, v));
+      uv.push(u, v);
+    }
+  }
+  for (let j = 0; j < NV; j++) for (let i = 0; i < NU; i++) {
+    const a = j * (NU + 1) + i, b = a + 1, c = a + NU + 1, d = c + 1;
+    idx.push(a, b, c, b, d, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return { g, NU };
+}
+
+function baseGeometry(NU) {
+  // the oval gusset the pouch stands on
+  const pos = [0, 0.001, 0], idx = [];
+  const ring = [];
+  for (let i = 0; i <= NU; i++) { const u = i / NU; ring.push([(u - 0.5) * PW, depthAt(u, 0)]); }
+  for (let i = NU; i >= 0; i--) { const u = i / NU; ring.push([(u - 0.5) * PW, -depthAt(u, 0)]); }
+  ring.forEach(([x, z]) => pos.push(x, 0.001, z));
+  for (let i = 1; i < ring.length; i++) idx.push(0, i, i + 1);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+// ============================================================ the studio ===
+const stage = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#070605");
+scene.fog = new THREE.Fog("#070605", 7, 16);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.45;
+RectAreaLightUniformsLib.init();
+
+const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 50);
+camera.position.set(1.9, 1.75, 5.2);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.0, 0);
+controls.enableDamping = true;
+controls.minDistance = 2.6; controls.maxDistance = 8;
+controls.minPolarAngle = 0.5; controls.maxPolarAngle = 1.5;
+
+// backdrop: a warm pool of light behind, falling off to black
+const [bgc2, bgg2] = canvas(1024, 1024);
+const bgGrad = bgg2.createRadialGradient(512, 560, 20, 512, 560, 520);
+bgGrad.addColorStop(0, "#4a2f17"); bgGrad.addColorStop(0.45, "#1c120a"); bgGrad.addColorStop(1, "#070605");
+bgg2.fillStyle = bgGrad; bgg2.fillRect(0, 0, 1024, 1024);
+const bgTex = new THREE.CanvasTexture(bgc2); bgTex.colorSpace = THREE.SRGBColorSpace;
+const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshBasicMaterial({ map: bgTex, fog: false }));
+backdrop.position.set(0, 2.4, -4.5);
+scene.add(backdrop);
+
+// floor: dark oiled wood-ish surface with a soft sheen
+const [flc, flg] = canvas(1024, 1024);
+flg.fillStyle = "#17110c"; flg.fillRect(0, 0, 1024, 1024);
+for (let y = 0; y < 1024; y += 2) { flg.fillStyle = `rgba(${40 + Math.random() * 20},${26 + Math.random() * 12},${14},${0.25 + vnoise(0, y * 0.05) * 0.3})`; flg.fillRect(0, y, 1024, 2); }
+const flTex = new THREE.CanvasTexture(flc); flTex.colorSpace = THREE.SRGBColorSpace; flTex.wrapS = flTex.wrapT = THREE.RepeatWrapping; flTex.repeat.set(3, 3);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ map: flTex, roughness: 0.86, metalness: 0, envMapIntensity: 0 })); // no studio reflections on the floor: at a grazing angle they show as a hard bright patch
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
+scene.add(floor);
+
+// contact shadow right under the pouch
+const [shc, shg] = canvas(256, 256);
+const shGrad = shg.createRadialGradient(128, 128, 0, 128, 128, 128);
+shGrad.addColorStop(0, "rgba(0,0,0,.9)"); shGrad.addColorStop(0.5, "rgba(0,0,0,.45)"); shGrad.addColorStop(1, "rgba(0,0,0,0)");
+shg.fillStyle = shGrad; shg.fillRect(0, 0, 256, 256);
+const contact = new THREE.Mesh(new THREE.PlaneGeometry(PW * 1.35, 1.25), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(shc), transparent: true, depthWrite: false }));
+contact.rotation.x = -Math.PI / 2; contact.position.y = 0.002;
+
+// the pouch
+const pouch = new THREE.Group();
+const { g: panelG, NU } = panelGeometry();
+const mat = (t) => new THREE.MeshPhysicalMaterial({
+  map: t.map, roughnessMap: t.ormTex, metalnessMap: t.ormTex, normalMap: t.normal, normalScale: new THREE.Vector2(0.6, 0.6),
+  roughness: 1, metalness: 1, alphaTest: 0.5, side: THREE.DoubleSide,
+  sheen: 0.22, sheenRoughness: 0.85, sheenColor: new THREE.Color("#34302e"), envMapIntensity: 0.7,
+});
+const frontT = panelTextures(front, "front");
+const backT = panelTextures(back, "back");
+const frontMesh = new THREE.Mesh(panelG, mat(frontT));
+const backMesh = new THREE.Mesh(panelG, mat(backT));
+backMesh.rotation.y = Math.PI;
+const base = new THREE.Mesh(baseGeometry(NU), new THREE.MeshStandardMaterial({ color: "#101012", roughness: 0.7, side: THREE.DoubleSide }));
+for (const m of [frontMesh, backMesh, base]) { m.castShadow = true; m.receiveShadow = true; pouch.add(m); }
+pouch.add(contact);
+pouch.rotation.y = -0.32;
+scene.add(pouch);
+
+// a little pile of instant granules spilling out in front of it
+const granuleGeo = new THREE.IcosahedronGeometry(1, 1);
+{
+  const p = granuleGeo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const k = 0.7 + vnoise(p.getX(i) * 3 + 9, p.getY(i) * 3 + p.getZ(i) * 2) * 0.6; p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * 0.75, p.getZ(i) * k); }
+  granuleGeo.computeVertexNormals();
+}
+const GN = 1600;
+const granules = new THREE.InstancedMesh(granuleGeo, new THREE.MeshPhysicalMaterial({ color: "#ffffff", roughness: 0.55, clearcoat: 0.25, clearcoatRoughness: 0.4, envMapIntensity: 0.6, flatShading: true }), GN);
+granules.castShadow = true; granules.receiveShadow = true;
+{
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), col = new THREE.Color();
+  const cx = 1.05, cz = 0.55;
+  for (let i = 0; i < GN; i++) {
+    const pile = i < GN * 0.82;
+    const r = pile ? Math.sqrt(-2 * Math.log(1 - Math.random() * 0.98)) * 0.13 : Math.random() * 0.75 + 0.1;
+    const a = Math.random() * Math.PI * 2;
+    const s = 0.008 + Math.random() * 0.012;
+    const hgt = pile ? 0.13 * Math.exp(-(r * r) / 0.012) * (0.75 + Math.random() * 0.3) : 0;
+    ps.set(cx + Math.cos(a) * r * (pile ? 1.2 : 1), hgt + s * 0.6, cz + Math.sin(a) * r * (pile ? 0.9 : 0.6));
+    e.set(Math.random() * 6, Math.random() * 6, Math.random() * 6); q.setFromEuler(e);
+    sc.set(s, s, s);
+    m.compose(ps, q, sc);
+    granules.setMatrixAt(i, m);
+    col.setHSL(0.055 + Math.random() * 0.02, 0.75, 0.014 + Math.random() * 0.03);
+    granules.setColorAt(i, col);
+  }
+}
+scene.add(granules);
+
+// lights: a soft warm key, two rim strips to draw the black pouch out of the dark, a top bounce
+const key = new THREE.SpotLight("#ffe2bd", 70, 20, 0.8, 1, 1.4);
+key.position.set(-2.6, 4.8, 3.6); key.target.position.set(0, 0.9, 0);
+key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0004; key.shadow.radius = 6;
+scene.add(key, key.target);
+const fill = new THREE.RectAreaLight("#ffe9cf", 1.0, 3, 4); fill.position.set(3.2, 1.6, 3.4); fill.lookAt(0, 1, 0); scene.add(fill);
+// rims are soft spots, not light strips: a strip lights the floor right up to a hard line where its plane meets it
+const rim = (color, power, x, z) => { const s = new THREE.SpotLight(color, power, 9, 0.32, 1, 1.5); s.position.set(x, 2.3, z); s.target.position.set(0, 1.05, 0); scene.add(s, s.target); return s; };
+const rimL = rim("#ffd9a8", 46, -2.3, -2.4);
+const rimR = rim("#ffe6c2", 32, 2.5, -2.2);
+const top = new THREE.RectAreaLight("#fff1dc", 2.2, 3, 1.4); top.position.set(0, 4.2, 0.6); top.lookAt(0, 1, 0); scene.add(top);
+scene.add(new THREE.HemisphereLight("#3a2c20", "#050403", 0.35));
+
+function resize(w = stage.clientWidth, h = stage.clientHeight) {
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+resize();
+new ResizeObserver(() => resize()).observe(stage);
+
+let want = null; // pouch turn target (front/back buttons)
+renderer.setAnimationLoop((t) => {
+  if (want !== null) {
+    pouch.rotation.y += (want - pouch.rotation.y) * 0.08;
+    if (Math.abs(want - pouch.rotation.y) < 0.002) want = null;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+});
+
+const viewF = document.getElementById("viewFront"), viewB = document.getElementById("viewBack");
+viewF.onclick = () => { want = -0.32; viewF.classList.add("on"); viewB.classList.remove("on"); };
+viewB.onclick = () => { want = Math.PI - 0.32; viewB.classList.add("on"); viewF.classList.remove("on"); };
+
+const download = (url, name) => { const a = document.createElement("a"); a.href = url; a.download = name; a.click(); };
+async function renderShot(w = 2400, h = 1600) {
+  const old = [stage.clientWidth, stage.clientHeight, renderer.getPixelRatio()];
+  renderer.setPixelRatio(1);
+  resize(w, h);
+  controls.update();
+  renderer.render(scene, camera);
+  const url = renderer.domElement.toDataURL("image/png");
+  renderer.setPixelRatio(old[2]);
+  resize(old[0], old[1]);
+  return url;
+}
+document.getElementById("dlFront").onclick = () => download(front.color.toDataURL("image/png"), "bean-and-beyond-instant-front-label.png");
+document.getElementById("dlBack").onclick = () => download(back.color.toDataURL("image/png"), "bean-and-beyond-instant-back-label.png");
+document.getElementById("dlMock").onclick = async () => download(await renderShot(), "bean-and-beyond-instant-pouch.png");
+
+// for scripted exports
+window.__pouch = {
+  labels: () => ({ front: front.color.toDataURL("image/png"), back: back.color.toDataURL("image/png") }),
+  shot: renderShot,
+  turn: (y) => { want = null; pouch.rotation.y = y; },
+  lights: { key, fill, rimL, rimR, top },
+  camera: (x, y, z) => { camera.position.set(x, y, z); controls.update(); },
+};
+window.__ready = true;
+</script>
+</body>
+</html>
