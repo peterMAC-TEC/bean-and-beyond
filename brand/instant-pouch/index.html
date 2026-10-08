@@ -311,6 +311,209 @@ function caramel(g, x, y, rot, s) {
   g.restore();
 }
 
+// ---- the engraved bean (copied from lib/engraving.ts) ----
+const INK = "#2e1a0b";
+const PAPER = "#f3e3bd";
+// the bean, in its own units: half-width A, half-length B (long axis along y)
+const A = 1;
+const B = 1.36;
+const rimAt = (y) => A * Math.sqrt(Math.max(0, 1 - (y / B) ** 2));
+const creaseAt = (y) => 0.1 * Math.sin(y * 2.3) + 0.03 * Math.sin(y * 6);
+function height(x, y) {
+    const e = 1 - (x / A) ** 2 - (y / B) ** 2;
+    if (e <= 0)
+        return 0;
+    let z = Math.sqrt(e) * 0.62; // the flat face of the bean, the crease side, faces us
+    const along = Math.sqrt(Math.max(0, 1 - (y / (B * 0.96)) ** 2));
+    const dx = x - creaseAt(y);
+    z -= 0.42 * along * Math.exp(-((dx / 0.075) ** 2)); // the crease
+    z += 0.07 * along * Math.exp(-(((Math.abs(dx) - 0.17) / 0.09) ** 2)); // its raised lips
+    return z;
+}
+/** 0 = full light (bare paper), 1 = deepest shadow */
+function darkness(x, y, L) {
+    const e = 0.004;
+    const gx = (height(x + e, y) - height(x - e, y)) / (2 * e);
+    const gy = (height(x, y + e) - height(x, y - e)) / (2 * e);
+    const n = [-gx, -gy, 1];
+    const len = Math.hypot(n[0], n[1], n[2]);
+    const lit = Math.max(0, (n[0] * L[0] + n[1] * L[1] + n[2] * L[2]) / len);
+    let d = 1 - Math.pow(lit, 0.75);
+    // the form falls away into shadow at the rim on the side away from the light
+    const r = Math.hypot(x / A, y / B);
+    const away = Math.max(0, -(x * L[0] + y * L[1]) / Math.hypot(x, y || 1e-6));
+    d += 0.45 * Math.max(0, (r - 0.7) / 0.3) * (0.4 + away);
+    // the bottom of the crease is always black
+    const dx = Math.abs(x - creaseAt(y));
+    d += 0.9 * Math.exp(-((dx / 0.05) ** 2)) * Math.sqrt(Math.max(0, 1 - (y / B) ** 2));
+    return Math.min(1, Math.max(0, d));
+}
+/** a line whose weight follows the shading, drawn as short round-capped strokes */
+function swell(g, pts, weight, px) {
+    g.lineCap = "round";
+    for (let i = 1; i < pts.length; i++) {
+        const [x0, y0] = pts[i - 1];
+        const [x1, y1] = pts[i];
+        const w = weight((x0 + x1) / 2, (y0 + y1) / 2);
+        if (w <= 0)
+            continue;
+        g.lineWidth = w / px;
+        g.beginPath();
+        g.moveTo(x0, y0);
+        g.lineTo(x1, y1);
+        g.stroke();
+    }
+}
+/**
+ * Draw the engraving centred on (cx, cy). `size` is the bean's half-length in canvas px, `rot` its
+ * tilt in radians. `clip` is the oval it sits in (the sunburst fills it).
+ */
+function engravedBean(g, cx, cy, size, rot, clip) {
+    const px = size / B; // canvas px per bean unit
+    // light from the top left of the label, turned into the bean's own frame
+    const ls = [-0.55, -0.62];
+    const c = Math.cos(-rot), s = Math.sin(-rot);
+    const L = [ls[0] * c - ls[1] * s, ls[0] * s + ls[1] * c, 0.62];
+    const ll = Math.hypot(...L);
+    L[0] /= ll;
+    L[1] /= ll;
+    L[2] /= ll;
+    g.save();
+    g.strokeStyle = INK;
+    g.fillStyle = INK;
+    // ---- behind: a fine sunburst filling the oval, leaving a halo round the bean ----
+    // the sunburst stops short of a clear halo round the bean and its shadow (an ellipse in the bean's tilt)
+    g.save();
+    const burst = new Path2D();
+    burst.ellipse(cx, cy, clip.rx, clip.ry, 0, 0, Math.PI * 2);
+    burst.ellipse(cx + size * 0.07, cy + size * 0.1, (A / B) * size * 1.22, size * 1.2, rot, 0, Math.PI * 2);
+    g.clip(burst, "evenodd");
+    g.lineWidth = 1.1;
+    g.globalAlpha = 0.55;
+    for (let i = 0; i < 300; i++) {
+        const a = (i / 300) * Math.PI * 2;
+        g.beginPath();
+        g.moveTo(cx, cy);
+        g.lineTo(cx + Math.cos(a) * clip.rx * 1.2, cy + Math.sin(a) * clip.rx * 1.2);
+        g.stroke();
+    }
+    g.globalAlpha = 1;
+    g.restore();
+    // ---- the cast shadow: level hatching to the bottom right, heavy under the bean, fading out ----
+    {
+        const sx = cx + size * 0.13, sy = cy + size * 0.19;
+        const ca = Math.cos(rot), sa = Math.sin(rot);
+        const ex = (A / B) * size * 1.06, ey = size * 1.02;
+        const r2 = (x, y) => {
+            const lx = (x - sx) * ca + (y - sy) * sa, ly = -(x - sx) * sa + (y - sy) * ca;
+            return (lx / ex) ** 2 + (ly / ey) ** 2;
+        };
+        g.lineCap = "round";
+        for (let y = sy - size * 1.1; y < sy + size * 1.1; y += 5.5) {
+            for (let x = sx - size * 1.1; x < sx + size * 1.1; x += 4) {
+                const r = r2(x + 2, y);
+                if (r >= 1)
+                    continue;
+                g.lineWidth = 0.4 + 2.6 * (1 - r) ** 1.4;
+                g.beginPath();
+                g.moveTo(x, y);
+                g.lineTo(x + 4.2, y);
+                g.stroke();
+            }
+        }
+    }
+    // ---- the bean ----
+    g.translate(cx, cy);
+    g.rotate(rot);
+    g.scale(px, px);
+    // its silhouette, in paper, so nothing behind shows through
+    const outline = [];
+    for (let i = 0; i <= 120; i++) {
+        const y = -B + (2 * B * i) / 120;
+        outline.push([rimAt(y), y]);
+    }
+    for (let i = 120; i >= 0; i--) {
+        const y = -B + (2 * B * i) / 120;
+        outline.push([-rimAt(y), y]);
+    }
+    g.beginPath();
+    outline.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    g.closePath();
+    g.fillStyle = PAPER;
+    g.fill();
+    g.save();
+    g.clip();
+    const dark = (x, y) => darkness(x, y, L);
+    // 1. the main lines: tip to tip, each half running from the crease out to the rim
+    const N = 30;
+    for (const side of [-1, 1]) {
+        for (let k = 1; k <= N; k++) {
+            const t = (k - 0.35) / N;
+            const pts = [];
+            for (let i = 0; i <= 160; i++) {
+                const y = -B * 0.985 + (2 * B * 0.985 * i) / 160;
+                const xc = creaseAt(y) * (1 - Math.min(1, Math.abs(y) / B) ** 4);
+                pts.push([xc + (side * rimAt(y) - xc) * t, y]);
+            }
+            swell(g, pts, (x, y) => {
+                const d = dark(x, y);
+                return d < 0.13 ? 0 : 0.35 + 3.3 * Math.pow((d - 0.13) / 0.87, 1.25);
+            }, px);
+        }
+    }
+    // 2. cross-hatching in the shadows: lines across the bean, bowed with its curve
+    for (let y0 = -B; y0 <= B; y0 += 0.055) {
+        const pts = [];
+        for (let i = 0; i <= 90; i++) {
+            const x = -A + (2 * A * i) / 90;
+            pts.push([x, y0 + 0.16 * (1 - (x / A) ** 2) * Math.sign(y0 || 1) * -0.6]);
+        }
+        swell(g, pts, (x, y) => {
+            const d = dark(x, y);
+            return d < 0.55 ? 0 : 0.3 + 2.4 * ((d - 0.55) / 0.45);
+        }, px);
+    }
+    // 3. a third, diagonal pass only in the very deepest shadow
+    for (let k = -3; k <= 3; k += 0.05) {
+        const pts = [];
+        for (let i = 0; i <= 60; i++) {
+            const tt = -1.6 + (3.2 * i) / 60;
+            pts.push([k * 0.5 + tt * 0.7, tt * 0.7 - k * 0.5]);
+        }
+        swell(g, pts, (x, y) => {
+            const d = dark(x, y);
+            return d < 0.8 ? 0 : 0.3 + 2.0 * ((d - 0.8) / 0.2);
+        }, px);
+    }
+    // 4. the crease: a deep black split, with paper showing on its lit lip (it's just starting to open)
+    const crease = (off) => {
+        const pts = [];
+        for (let i = 0; i <= 120; i++) {
+            const y = -B * 0.93 + (2 * B * 0.93 * i) / 120;
+            pts.push([creaseAt(y) + off, y]);
+        }
+        return pts;
+    };
+    swell(g, crease(0), (_x, y) => 3 + 13 * Math.pow(Math.max(0, 1 - (y / B) ** 2), 0.8), px);
+    g.strokeStyle = PAPER;
+    swell(g, crease(-0.055), (_x, y) => 2.2 * Math.max(0, 1 - (y / (B * 0.7)) ** 2), px);
+    g.strokeStyle = INK;
+    g.restore();
+    // 5. the outline: hairline where the light falls, heavy on the shadow side
+    for (let i = 1; i < outline.length; i++) {
+        const [x0, y0] = outline[i - 1];
+        const [x1, y1] = outline[i];
+        const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+        const facing = -(mx * L[0] + my * L[1]) / (Math.hypot(mx, my) || 1); // 1 = away from the light
+        g.lineWidth = (1.4 + 3.6 * Math.max(0, facing)) / px;
+        g.beginPath();
+        g.moveTo(x0, y0);
+        g.lineTo(x1, y1);
+        g.stroke();
+    }
+    g.restore();
+}
+
 function drawFront(g, ink, fl) {
   const foil = ink.foil, cx = W / 2;
   stock(g, foil);
@@ -342,29 +545,8 @@ function drawFront(g, ink, fl) {
     parch.addColorStop(0, "#f3e3bd"); parch.addColorStop(0.7, "#d9bd86"); parch.addColorStop(1, "#a9874e");
     g.fillStyle = parch; g.beginPath(); g.ellipse(cx, oy, rx - 4, ry - 4, 0, 0, Math.PI * 2); g.fill();
     g.save(); g.beginPath(); g.ellipse(cx, oy, rx - 4, ry - 4, 0, 0, Math.PI * 2); g.clip();
-    leaf(g, cx - 60, oy + 50, Math.PI + 0.45, 1.05);
-    leaf(g, cx + 60, oy + 60, -0.4, 1.05);
-    leaf(g, cx - 40, oy - 40, Math.PI + 1.0, 0.9);
-    leaf(g, cx + 50, oy - 50, -1.0, 0.85);
-    for (const [dx, dy] of [[150, -200], [190, -175], [168, -150], [210, -205]]) {
-      const grd = g.createRadialGradient(cx + dx - 8, oy + dy - 8, 2, cx + dx, oy + dy, 24);
-      grd.addColorStop(0, "#d9b888"); grd.addColorStop(1, "#6b4520");
-      g.fillStyle = grd; g.beginPath(); g.arc(cx + dx, oy + dy, 24, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = "#3e2712"; g.lineWidth = 3; g.stroke();
-    }
-    bean(g, cx + 210, oy + 70, -0.6, 0.95);
-    bean(g, cx - 270, oy + 80, 0.7, 0.85);
-    // the flavour's own engraving beside the beans
-    if (fl.id === "hazelnut") { hazelnut(g, cx + 305, oy - 30, 0.25, 0.95); hazelnut(g, cx + 330, oy + 110, -0.4, 0.75); }
-    else if (fl.id === "caramel") { caramel(g, cx + 300, oy - 30, 0.3, 0.9); caramel(g, cx + 340, oy + 100, -0.25, 0.7); }
-    else bean(g, cx + 300, oy - 20, 0.4, 0.8);
-    spoon(g, cx - 60, oy - 10, -0.95, 1.08);
-    const rnd = seeded(3);
-    for (let i = 0; i < 26; i++) {
-      g.fillStyle = i % 2 ? "#3a2210" : "#5e3c1c";
-      const gx = cx - 230 + rnd() * 160, gy = oy + 90 + rnd() * 110, sz = 4 + rnd() * 6;
-      g.beginPath(); for (let k = 0; k < 5; k++) { const b = (k / 5) * Math.PI * 2 + rnd(); g.lineTo(gx + Math.cos(b) * sz, gy + Math.sin(b) * sz); } g.fill();
-    }
+    // one hero bean, engraved (same code as lib/engraving.ts on the website)
+    engravedBean(g, cx, oy, 218, -1.05, { rx: rx - 4, ry: ry - 4 });
     g.restore();
   }
 
