@@ -7,6 +7,7 @@ import { openOrder } from "@/lib/order";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 import { head, type Fluid } from "@/lib/fluid";
 import { TextReveal } from "./TextReveal";
+import { InstantPouch } from "./InstantPouch";
 
 const R = 0.4; // the liquid's radius, as a share of the canvas height
 
@@ -254,7 +255,48 @@ export function Instant() {
     <section ref={wrap} id="instant" aria-labelledby="instant-title" className="relative overflow-hidden bg-ink px-5 pb-28 pt-8 sm:px-8 lg:px-12">
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(ellipse 40% 55% at 28% 50%, rgba(138,92,44,.18), transparent 70%)" }} />
 
-      <div className="relative mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[1fr_1fr] lg:gap-16">
+      {/* the pouch, in 3D: what you actually get */}
+      <div className="relative mx-auto grid max-w-7xl items-center gap-8 lg:grid-cols-[1.15fr_1fr] lg:gap-16">
+        <InstantPouch />
+        <div>
+          <p className="mono text-muted">
+            {instant.kicker.split("//")[0].trim()} <span className="text-glow">{"// "}{instant.kicker.split("//")[1]?.trim() ?? instant.name}</span>
+          </p>
+          <TextReveal text={instant.title} className="hud mt-3 text-[clamp(2.6rem,5.4vw,5rem)] font-extralight leading-[0.92] text-cream" />
+          <h3 id="instant-title" className="sr-only">
+            {site.brand.name} {instant.name} coffee powder
+          </h3>
+          <p className="mt-5 max-w-md text-[17px] leading-relaxed text-muted">{instant.text}</p>
+
+          <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
+            <div>
+              <p className="hud text-3xl text-glow">{priced ? `₹${instant.price}` : "Price soon"}</p>
+              <p className="mono mt-1 text-muted">
+                {instant.name} coffee powder{instant.size && ` · ${instant.size}`}
+              </p>
+            </div>
+            {priced ? (
+              <button
+                type="button"
+                onClick={() => {
+                  play("clink");
+                  openOrder({ add: instant.id });
+                }}
+                className="hud rounded-sm bg-glow px-7 py-[13px] text-[16px] font-semibold text-ink transition hover:bg-cream"
+              >
+                + Add to order
+              </button>
+            ) : (
+              <a href={ask} target="_blank" rel="noopener noreferrer" onClick={() => play("clink")} className="hud rounded-sm border border-gold/40 px-7 py-[13px] text-[16px] text-gold transition hover:border-glow hover:bg-glow hover:text-ink">
+                Ask on WhatsApp ↗
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* make a cup: the live cup and the steps */}
+      <div className="relative mx-auto mt-16 grid max-w-7xl items-center gap-10 border-t border-line pt-14 lg:mt-24 lg:grid-cols-[1fr_1fr] lg:gap-16 lg:pt-20">
         {/* the cup, seen from above, on a saucer */}
         <div className="relative mx-auto aspect-square w-full max-w-[520px] touch-none select-none">
           {/* one warm light from the top left: the saucer falls off into the dark bar top */}
@@ -281,8 +323,7 @@ export function Instant() {
           <canvas ref={canvas} aria-label="A cup of hot water. Tap to drop in a spoon of instant coffee, drag to stir." className="absolute inset-[9.5%] h-[81%] w-[81%] cursor-pointer rounded-full" />
           {!ok && <div aria-hidden className="absolute inset-[18%] rounded-full" style={{ background: "radial-gradient(circle at 40% 36%, #3b1e0c, #0d0603 70%)" }} />}
 
-          <p className="mono pointer-events-none absolute left-0 top-0 rounded-sm border border-line bg-ink/80 px-2 py-1 text-muted">Tap for a spoon · drag to stir</p>
-          <p className="mono pointer-events-none absolute right-0 top-0 rotate-[-4deg] border border-glow/70 px-2 py-1 text-glow">{instant.tag}</p>
+          <p className="mono pointer-events-none absolute right-0 top-0 text-muted">Tap for a spoon · drag to stir</p>
           <p className="mono pointer-events-none absolute bottom-0 left-0 text-muted" aria-live="polite">
             {spoons === 0 ? "Hot water, waiting" : `${spoons} spoon${spoons === 1 ? "" : "s"} in`}
           </p>
@@ -295,14 +336,10 @@ export function Instant() {
 
         <div>
           <p className="mono text-muted">
-            {instant.kicker.split("//")[0].trim()} <span className="text-glow">{"// "}{instant.kicker.split("//")[1]?.trim() ?? instant.name}</span>
+            Make a cup <span className="text-glow">{"// "}Your turn</span>
           </p>
-          <TextReveal text={instant.title} className="hud mt-3 text-[clamp(2.6rem,5.4vw,5rem)] font-extralight leading-[0.92] text-cream" />
-          <h3 id="instant-title" className="sr-only">
-            {site.brand.name} {instant.name} coffee powder
-          </h3>
-          <p className="mt-5 max-w-md text-[17px] leading-relaxed text-muted">{instant.text}</p>
-
+          <p className="hud mt-3 text-[clamp(2rem,3.6vw,3.2rem)] font-extralight leading-[0.95] text-cream">One spoon. Hot water. Stir.</p>
+          <p className="mt-4 max-w-md text-[17px] leading-relaxed text-muted">Tap the cup to drop in a spoon and watch it dissolve. Drag to stir it black.</p>
           <ol className="mt-8 grid max-w-md grid-cols-2 gap-px overflow-hidden rounded-sm border border-line bg-line">
             {instant.howTo.map((s, i) => (
               <li key={s} className="bg-panel px-4 py-3">
@@ -311,31 +348,6 @@ export function Instant() {
               </li>
             ))}
           </ol>
-
-          <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
-            <div>
-              <p className="hud text-3xl text-glow">{priced ? `₹${instant.price}` : "Price soon"}</p>
-              <p className="mono mt-1 text-muted">
-                {instant.name} coffee powder{instant.size && ` · ${instant.size}`}
-              </p>
-            </div>
-            {priced ? (
-              <button
-                type="button"
-                onClick={() => {
-                  play("clink");
-                  openOrder({ add: instant.id });
-                }}
-                className="hud rounded-sm bg-glow px-7 py-[13px] text-[16px] font-semibold text-ink transition hover:bg-cream"
-              >
-                + Add to order
-              </button>
-            ) : (
-              <a href={ask} target="_blank" rel="noopener noreferrer" onClick={() => play("clink")} className="hud rounded-sm border border-gold/40 px-7 py-[13px] text-[16px] text-gold transition hover:border-glow hover:bg-glow hover:text-ink">
-                Ask on WhatsApp ↗
-              </a>
-            )}
-          </div>
         </div>
       </div>
     </section>
