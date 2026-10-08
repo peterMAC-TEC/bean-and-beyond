@@ -808,7 +808,7 @@ document.getElementById("dlMock").onclick = async () => download(await renderSho
 
 // for scripted exports
 window.__pouch = {
-  labels: () => ({ front: front.color.toDataURL("image/png"), back: back.color.toDataURL("image/png") }),
+  labels: () => ({ front: front.color.toDataURL("image/png"), back: back.color.toDataURL("image/png"), frontFoil: front.foil.toDataURL("image/png") }),
   setFlavour,
   flavours: LABEL.flavours.map((f) => f.id),
   shot: renderShot,
