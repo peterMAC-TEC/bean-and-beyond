@@ -7,6 +7,7 @@ import { InstagramBand } from "@/components/InstagramBand";
 import { Footer } from "@/components/Footer";
 import { Buy } from "@/components/Buy";
 import { DiwaliBand } from "@/components/DiwaliBand";
+import { Instant } from "@/components/Instant";
 
 export default function Home() {
   return (
@@ -16,6 +17,7 @@ export default function Home() {
         <BeanStory />
         <Marble />
         <LineUp />
+        <Instant />
         <DiwaliBand />
         {/* The pack builder is the order panel (components/OrderDrawer.tsx). TODO (Phase 4): Bulk & corporate gifting form */}
         <FindUs />

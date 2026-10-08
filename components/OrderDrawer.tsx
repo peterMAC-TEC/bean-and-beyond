@@ -6,10 +6,12 @@ import { play } from "@/lib/sound";
 import { ORDER_EVENT, type OpenOrder } from "@/lib/order";
 import { CrateStage } from "./CrateStage";
 
-const { flavours, addOns, contact, delivery } = site;
+const { flavours, addOns, contact, delivery, instant } = site;
 const SINGLE = flavours[0].price;
 const FREE_FROM = delivery.freeFrom;
 const milk = addOns.find((a) => a.show);
+// the instant coffee powder sells here once it has a price (it doesn't go in the bottle crate)
+const powder = instant.show && instant.price > 0 ? instant : null;
 const empty = () => Object.fromEntries(flavours.map((f) => [f.id, 0])) as Record<string, number>;
 const sum = (c: Record<string, number>) => Object.values(c).reduce((a, b) => a + b, 0);
 
@@ -40,6 +42,7 @@ export function OrderDrawer() {
   const [open, setOpen] = useState(false);
   const [counts, setCounts] = useState(empty);
   const [extra, setExtra] = useState(0);
+  const [jars, setJars] = useState(0);
   // the order has been sent: the crate is nailed shut and ships out of frame (reset by any change)
   const [shipped, setShipped] = useState(false);
   const closeBtn = useRef<HTMLButtonElement>(null);
@@ -49,7 +52,8 @@ export function OrderDrawer() {
   const picked = sum(counts);
   const free = picked >= FREE_FROM;
   const toFree = Math.max(0, FREE_FROM - picked);
-  const total = picked * SINGLE + extra * (milk?.price ?? 0);
+  const total = picked * SINGLE + extra * (milk?.price ?? 0) + jars * (powder?.price ?? 0);
+  const items = picked + jars;
 
   const bump = (id: string, d: number) => {
     play("tick", { gain: 0.7 });
@@ -66,7 +70,8 @@ export function OrderDrawer() {
   useEffect(() => {
     const onOpen = (e: Event) => {
       const { add, qty = 1 } = (e as CustomEvent<OpenOrder>).detail ?? {};
-      if (add) {
+      if (add && add === powder?.id) setJars((n) => n + qty);
+      else if (add) {
         setCounts((c) => ({ ...c, [add]: c[add] + qty }));
         setOrder((o) => [...o, ...Array.from({ length: qty }, () => add)]);
       }
@@ -94,9 +99,10 @@ export function OrderDrawer() {
 
   const message = [
     "Hi! I'd like to order:",
-    `${picked} bottle${picked === 1 ? "" : "s"} (₹${picked * SINGLE})`,
+    ...(picked ? [`${picked} bottle${picked === 1 ? "" : "s"} (₹${picked * SINGLE})`] : []),
     ...flavours.filter((f) => counts[f.id]).map((f) => `• ${f.name} × ${counts[f.id]}`),
     ...(extra && milk ? [`+ ${milk.name} × ${extra} (₹${extra * milk.price})`] : []),
+    ...(jars && powder ? [`+ ${powder.name} coffee powder${powder.size ? ` (${powder.size})` : ""} × ${jars} (₹${jars * powder.price})`] : []),
     `Total: ₹${total}${free ? " · free delivery" : ""}`,
   ].join("\n");
   const waUrl = `https://wa.me/${contact.whatsapp}?text=${encodeURIComponent(message)}`;
@@ -172,6 +178,24 @@ export function OrderDrawer() {
                 />
               </li>
             )}
+            {powder && (
+              <li className="flex items-center gap-3 border-t border-line py-2 [@media(max-height:700px)]:py-1.5">
+                <span aria-hidden className="h-7 w-1 shrink-0 rounded-full bg-gold" />
+                <div className="min-w-0 flex-1">
+                  <p className="hud text-lg leading-tight text-cream">{powder.name} coffee powder</p>
+                  <p className="truncate text-[12px] leading-tight text-muted">
+                    ₹{powder.price}
+                    {powder.size && ` · ${powder.size}`} · {powder.tag}
+                  </p>
+                </div>
+                <Stepper
+                  value={jars}
+                  label={`${powder.name} coffee powder`}
+                  onMinus={() => (play("tick", { gain: 0.7 }), setShipped(false), setJars((n) => Math.max(0, n - 1)))}
+                  onPlus={() => (play("tick", { gain: 0.7 }), setShipped(false), setJars((n) => n + 1))}
+                />
+              </li>
+            )}
           </ul>
         </div>
 
@@ -180,7 +204,7 @@ export function OrderDrawer() {
             <p className="mono text-muted">Total · {free ? "free delivery" : picked ? "+ delivery" : "—"}</p>
             <p className="hud text-3xl text-glow">₹{total}</p>
           </div>
-          {picked > 0 ? (
+          {items > 0 ? (
             <a
               href={waUrl}
               target="_blank"

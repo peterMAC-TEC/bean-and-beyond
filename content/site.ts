@@ -71,6 +71,22 @@ export const site = {
     },
   ],
 
+  // ---------- Instant coffee powder (new SKU, added 2026-10-08) ----------
+  // Shows as its own section under the line-up, and in the order panel once it has a price.
+  // While price is 0 the button asks about it on WhatsApp instead of adding it to the order.
+  instant: {
+    show: true,
+    id: "instant",
+    name: "Instant", // TODO: the real product name
+    size: "", // TODO: pack size, e.g. "100 g jar" (hidden while empty)
+    price: 0, // TODO: price in rupees (0 = "price soon")
+    kicker: "New // Instant",
+    title: "The same pour. In a spoon.",
+    text: "Our dark roast, dried to granules. One spoon, hot water, stir, and it's Bean & Beyond wherever you are.",
+    howTo: ["One heaped spoon", "150 ml hot water", "Stir 10 seconds", "Condensed milk to taste"], // TODO: confirm
+    tag: "New",
+  },
+
   // ---------- Packs ----------
   packs: [
     // (2026-10-07: packs retired. Any number of bottles at the single price; free delivery from delivery.freeFrom.)
@@ -113,6 +129,7 @@ export const site = {
     { id: "origin", label: "Origin" },
     { id: "ritual", label: "The Ritual" },
     { id: "lineup", label: "Line-up" },
+    { id: "instant", label: "Instant" },
     { id: "find-us", label: "Find us" },
     { id: "spotted", label: "Spotted" },
     { id: "buy", label: "Buy" },
