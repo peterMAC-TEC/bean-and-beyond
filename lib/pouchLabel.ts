@@ -14,6 +14,14 @@ const H = LABEL_H;
 type Ink = { gold: string | CanvasGradient; foil: boolean };
 type Fonts = { display: string; hud: string };
 type G = CanvasRenderingContext2D;
+export type InstantFlavour = (typeof site.instant.flavours)[number];
+
+/** a hex colour, darkened (k < 1) or lightened (k > 1) */
+const shade = (hex: string, k: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.max(0, Math.min(255, Math.round(v * k))));
+  return `rgb(${c.join(",")})`;
+};
 
 const canvas = (w: number, h: number) => {
   const c = document.createElement("canvas");
@@ -135,6 +143,92 @@ function leaf(g: G, x: number, y: number, rot: number, s: number) {
 }
 
 const seeded = (seed: number) => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+/** An engraved hazelnut: round body, pale textured cap, a little point on top. */
+function hazelnut(g: G, x: number, y: number, rot: number, s: number) {
+  g.save();
+  g.translate(x, y);
+  g.rotate(rot);
+  g.scale(s, s);
+  const body = g.createRadialGradient(-16, -6, 6, 0, 8, 70);
+  body.addColorStop(0, "#e2bb82");
+  body.addColorStop(0.6, "#a8743c");
+  body.addColorStop(1, "#5e3a18");
+  g.fillStyle = body;
+  g.beginPath();
+  g.moveTo(0, -58);
+  g.bezierCurveTo(40, -50, 58, -8, 54, 22);
+  g.bezierCurveTo(50, 56, 22, 66, 0, 66);
+  g.bezierCurveTo(-22, 66, -50, 56, -54, 22);
+  g.bezierCurveTo(-58, -8, -40, -50, 0, -58);
+  g.fill();
+  g.strokeStyle = "#3e2712";
+  g.lineWidth = 4;
+  g.stroke();
+  // grain lines running down the shell
+  g.strokeStyle = "rgba(62,39,18,.45)";
+  g.lineWidth = 2;
+  for (let i = -40; i <= 40; i += 10) {
+    g.beginPath();
+    g.moveTo(i * 0.6, -40);
+    g.quadraticCurveTo(i * 1.1, 10, i * 0.7, 60);
+    g.stroke();
+  }
+  // the pale rough cap
+  g.save();
+  g.beginPath();
+  g.ellipse(0, 40, 50, 28, 0, 0, Math.PI * 2);
+  g.clip();
+  g.fillStyle = "#d8bd8a";
+  g.fillRect(-60, 0, 120, 80);
+  g.fillStyle = "rgba(62,39,18,.5)";
+  const rnd = seeded(11);
+  for (let i = 0; i < 70; i++) g.fillRect(-50 + rnd() * 100, 14 + rnd() * 52, 2.5, 2.5);
+  g.restore();
+  g.strokeStyle = "#3e2712";
+  g.lineWidth = 3;
+  g.beginPath();
+  g.ellipse(0, 40, 50, 28, 0, Math.PI * 1.05, Math.PI * 1.95);
+  g.stroke();
+  g.fillStyle = "#5e3a18";
+  g.beginPath();
+  g.moveTo(-6, -56);
+  g.lineTo(0, -72);
+  g.lineTo(6, -56);
+  g.fill();
+  g.restore();
+}
+
+/** An engraved caramel: a soft-edged amber cube with a glossy top. */
+function caramel(g: G, x: number, y: number, rot: number, s: number) {
+  g.save();
+  g.translate(x, y);
+  g.rotate(rot);
+  g.scale(s, s);
+  const r = 14, w = 96;
+  const grd = g.createLinearGradient(-w / 2, -w / 2, w / 2, w / 2);
+  grd.addColorStop(0, "#f2c77e");
+  grd.addColorStop(0.5, "#c98a3a");
+  grd.addColorStop(1, "#7a4614");
+  g.fillStyle = grd;
+  g.beginPath();
+  g.roundRect(-w / 2, -w / 2, w, w, r);
+  g.fill();
+  g.strokeStyle = "#3e2712";
+  g.lineWidth = 4;
+  g.stroke();
+  // a bevel and a glossy streak, like a boiled sweet
+  g.strokeStyle = "rgba(255,236,190,.55)";
+  g.lineWidth = 3;
+  g.beginPath();
+  g.roundRect(-w / 2 + 10, -w / 2 + 10, w - 20, w - 20, r - 6);
+  g.stroke();
+  g.fillStyle = "rgba(255,248,225,.6)";
+  g.beginPath();
+  g.ellipse(-18, -22, 22, 7, -0.6, 0, Math.PI * 2);
+  g.fill();
+  g.restore();
+}
 
 /** An engraved antique spoon heaped with granules: the hero of the instant label. */
 function spoon(g: G, x: number, y: number, rot: number, s: number) {
@@ -312,37 +406,8 @@ function vegMark(g: G, x: number, y: number, size: number) {
   g.fill();
 }
 
-function warningPanel(g: G, ink: Ink, f: Fonts, wy: number, wh: number) {
-  const cx = W / 2, wx = 190, ww = W - 380;
-  const { heading, lines } = site.warning;
-  // the bottle's four printed lines, rejoined into three that fit the panel
-  const text = lines.join(" ").replace(/\s+/g, " ");
-  const split = text.indexOf("(2)");
-  const one = text.slice(0, split).trim();
-  const mid = one.lastIndexOf(" ", Math.ceil(one.length / 2) + 4);
-  const rows = [one.slice(0, mid), one.slice(mid + 1), text.slice(split).trim()];
-  if (!ink.foil) {
-    g.fillStyle = "#ecdcb4";
-    g.fillRect(wx, wy, ww, wh);
-    const age = g.createLinearGradient(wx, wy, wx + ww, wy + wh);
-    age.addColorStop(0, "rgba(120,80,30,0)");
-    age.addColorStop(1, "rgba(120,80,30,.22)");
-    g.fillStyle = age;
-    g.fillRect(wx, wy, ww, wh);
-    g.textAlign = "center";
-    g.fillStyle = "#b8251a";
-    g.font = `600 50px ${f.hud}`;
-    g.fillText(heading, cx, wy + 46);
-    g.fillStyle = "#24170d";
-    g.font = `500 34px ${f.hud}`;
-    rows.forEach((l, i) => g.fillText(l, cx, wy + 100 + i * 40));
-  }
-  g.strokeStyle = ink.gold;
-  g.lineWidth = 6;
-  g.strokeRect(wx, wy, ww, wh);
-}
 
-function drawFront(g: G, ink: Ink, f: Fonts) {
+function drawFront(g: G, ink: Ink, f: Fonts, flavour: InstantFlavour) {
   const { instant } = site;
   const foil = ink.foil, cx = W / 2;
   stock(g, foil);
@@ -359,14 +424,15 @@ function drawFront(g: G, ink: Ink, f: Fonts) {
   g.restore();
   diamondRule(g, 616, W / 2 - 170);
   g.font = `600 44px ${f.display}`;
-  g.fillText("HAND-CRAFTED  ·  BATCH NO. 01  ·  VIETNAMESE COFFEE", cx, 688);
+  g.fillText("HAND-CRAFTED  ·  BATCH NO. 01  ·  DARK ROAST", cx, 672);
 
-  const oy = 1010, rx = 430, ry = 272;
+  // the flavour colours the ribbon behind the oval
+  const oy = 1030, rx = 430, ry = 272;
   if (!foil) {
     const band = g.createLinearGradient(0, oy - 150, 0, oy + 150);
-    band.addColorStop(0, "#3a1714");
-    band.addColorStop(0.5, "#5a2420");
-    band.addColorStop(1, "#3a1714");
+    band.addColorStop(0, shade(flavour.band, 0.62));
+    band.addColorStop(0.5, flavour.band);
+    band.addColorStop(1, shade(flavour.band, 0.62));
     g.fillStyle = band;
     g.fillRect(96, oy - 140, W - 192, 280);
   }
@@ -416,8 +482,15 @@ function drawFront(g: G, ink: Ink, f: Fonts) {
       g.stroke();
     }
     bean(g, cx + 210, oy + 70, -0.6, 0.95);
-    bean(g, cx + 300, oy - 20, 0.4, 0.8);
     bean(g, cx - 270, oy + 80, 0.7, 0.85);
+    // the flavour's own engraving beside the beans
+    if (flavour.id === "hazelnut") {
+      hazelnut(g, cx + 305, oy - 30, 0.25, 0.95);
+      hazelnut(g, cx + 330, oy + 110, -0.4, 0.75);
+    } else if (flavour.id === "caramel") {
+      caramel(g, cx + 300, oy - 30, 0.3, 0.9);
+      caramel(g, cx + 340, oy + 100, -0.25, 0.7);
+    } else bean(g, cx + 300, oy - 20, 0.4, 0.8);
     spoon(g, cx - 60, oy - 10, -0.95, 1.08);
     const rnd = seeded(3);
     for (let i = 0; i < 26; i++) {
@@ -433,21 +506,25 @@ function drawFront(g: G, ink: Ink, f: Fonts) {
     g.restore();
   }
 
+  // the flavour, as large as the label allows, then what it is
   g.fillStyle = ink.gold;
   g.strokeStyle = ink.gold;
   g.save();
-  g.translate(cx, 1416);
-  g.scale(0.78, 1);
-  g.font = `700 172px ${f.display}`;
-  g.fillText(`${instant.name} coffee`.toUpperCase(), 0, 0, (W - 300) / 0.78);
+  g.translate(cx, 1458);
+  g.scale(0.8, 1);
+  g.font = `700 250px ${f.display}`;
+  g.fillText(flavour.name.toUpperCase(), 0, 0, (W - 280) / 0.8);
   g.restore();
-  g.font = `600 42px ${f.display}`;
-  g.fillText("DARK ROAST  ·  INSTANT GRANULES", cx, 1510);
+  diamondRule(g, 1602, W / 2 - 260);
+  g.save();
+  g.translate(cx, 1678);
+  g.scale(0.9, 1);
+  g.font = `600 92px ${f.display}`;
+  g.fillText(`${instant.name} coffee`.toUpperCase().split("").join(String.fromCharCode(8202)), 0, 0, (W - 360) / 0.9);
+  g.restore();
+  g.font = `600 40px ${f.display}`;
+  g.fillText("INSTANT GRANULES  ·  ONE SPOON, ONE CUP", cx, 1760);
 
-  warningPanel(g, ink, f, 1572, 214);
-
-  g.fillStyle = ink.gold;
-  g.strokeStyle = ink.gold;
   const by = 1858;
   if (instant.size) {
     g.textAlign = "left";
@@ -483,7 +560,7 @@ function wrap(g: G, text: string, x: number, y: number, maxW: number, lh: number
   return y + lh;
 }
 
-function drawBack(g: G, ink: Ink, f: Fonts) {
+function drawBack(g: G, ink: Ink, f: Fonts, flavour: InstantFlavour) {
   const { instant } = site;
   const foil = ink.foil, cx = W / 2, cream = "#eadfc6";
   stock(g, foil);
@@ -497,80 +574,79 @@ function drawBack(g: G, ink: Ink, f: Fonts) {
   g.font = `700 132px ${f.display}`;
   g.fillText(site.brand.name.toUpperCase(), 0, 0);
   g.restore();
-  g.font = `600 40px ${f.display}`;
-  g.fillText(`${instant.name} coffee`.toUpperCase() + (instant.size ? `  ·  ${instant.size}` : ""), cx, 470);
-  diamondRule(g, 526, W / 2 - 200);
+  g.font = `600 46px ${f.display}`;
+  g.fillText(`${flavour.name}  ·  ${instant.name} coffee`.toUpperCase() + (instant.size ? `  ·  ${instant.size}` : ""), cx, 474, W - 340);
+  diamondRule(g, 534, W / 2 - 200);
 
   const L = 170, R = W - 170;
   const heading = (t: string, y: number) => {
     g.fillStyle = ink.gold;
     g.textAlign = "left";
-    g.font = `600 40px ${f.hud}`;
+    g.font = `600 44px ${f.hud}`;
     g.fillText(t.split("").join(String.fromCharCode(8202)), L, y);
   };
 
   // how to make it: a 2 × 2 grid of numbered steps
-  heading("HOW TO MAKE IT", 610);
+  heading("HOW TO MAKE IT", 640);
   const colW = (R - L) / 2;
   instant.howTo.forEach((s, i) => {
-    const x = L + (i % 2) * colW, y = 700 + Math.floor(i / 2) * 210;
+    const x = L + (i % 2) * colW, y = 760 + Math.floor(i / 2) * 250;
     g.fillStyle = ink.gold;
     g.textAlign = "left";
-    g.font = `700 92px ${f.display}`;
+    g.font = `700 104px ${f.display}`;
     g.fillText(String(i + 1).padStart(2, "0"), x, y);
     if (!foil) {
       g.fillStyle = cream;
-      g.font = `500 46px ${f.hud}`;
-      wrap(g, s, x + 130, y - 4, colW - 160, 48);
+      g.font = `500 52px ${f.hud}`;
+      wrap(g, s, x + 148, y - 4, colW - 180, 54);
     }
   });
   g.strokeStyle = ink.gold;
   g.lineWidth = 2;
   g.beginPath();
-  g.moveTo(L + colW - 20, 650);
-  g.lineTo(L + colW - 20, 960);
-  g.moveTo(L, 805);
-  g.lineTo(R, 805);
+  g.moveTo(L + colW - 20, 690);
+  g.lineTo(L + colW - 20, 1080);
+  g.moveTo(L, 885);
+  g.lineTo(R, 885);
   g.stroke();
 
-  heading("STORAGE", 1050);
+  heading("STORAGE", 1200);
   if (!foil) {
     g.fillStyle = cream;
-    g.font = `500 42px ${f.hud}`;
-    wrap(g, "Store in a cool, dry place. Use a dry spoon and seal the zip after every use.", L, 1110, R - L, 48);
+    g.font = `500 46px ${f.hud}`;
+    wrap(g, "Store in a cool, dry place. Use a dry spoon and seal the zip after every use.", L, 1264, R - L, 54);
   }
 
-  warningPanel(g, ink, f, 1290, 214);
-
+  diamondRule(g, 1430, W / 2 - 260);
   g.fillStyle = ink.gold;
   g.textAlign = "center";
-  g.font = `italic 600 56px ${f.display}`;
-  g.fillText(site.brand.tagline, cx, 1640);
-  g.font = `600 34px ${f.hud}`;
-  g.fillText(`@${site.contact.instagram}  ·  ${site.contact.city.toUpperCase()}`, cx, 1720);
-  if (!foil) vegMark(g, L, 1800, 64);
+  g.font = `italic 600 64px ${f.display}`;
+  g.fillText(site.brand.tagline, cx, 1560);
+  g.font = `600 38px ${f.hud}`;
+  g.fillText(`@${site.contact.instagram}  ·  ${site.contact.city.toUpperCase()}`, cx, 1650);
+  if (!foil) vegMark(g, L, 1790, 64);
 }
 
-function make(draw: (g: G, ink: Ink, f: Fonts) => void, f: Fonts) {
+function make(draw: (g: G, ink: Ink, f: Fonts, fl: InstantFlavour) => void, f: Fonts, flavour: InstantFlavour) {
   const [cc, cg] = canvas(W, H);
   const gold = cg.createLinearGradient(0, 0, W, H * 0.6);
   ["#7a5a26", "#e9cf8e", "#a37c3a", "#fff0c2", "#b48c45", "#f2d894", "#7f5f2a"].forEach((c, i, a) => gold.addColorStop(i / (a.length - 1), c));
-  draw(cg, { gold, foil: false }, f);
+  draw(cg, { gold, foil: false }, f, flavour);
   const [mc, mg] = canvas(W, H);
   mg.fillStyle = "#000";
   mg.fillRect(0, 0, W, H);
-  draw(mg, { gold: "#fff", foil: true }, f);
+  draw(mg, { gold: "#fff", foil: true }, f, flavour);
   return { color: cc, foil: mc };
 }
 
 export type PouchLabel = ReturnType<typeof make>;
 
-export async function pouchLabels() {
+export async function pouchLabels(flavour: InstantFlavour = site.instant.flavours[0]) {
   const css = getComputedStyle(document.documentElement);
   const fonts: Fonts = {
     display: css.getPropertyValue("--font-display").trim() || "serif",
     hud: css.getPropertyValue("--font-hud").trim() || "sans-serif",
   };
   await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 800))]);
-  return { front: make(drawFront, fonts), back: make(drawBack, fonts) };
+  return { front: make(drawFront, fonts, flavour), back: make(drawBack, fonts, flavour) };
 }

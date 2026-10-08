@@ -83,6 +83,8 @@ export function Instant() {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [ok, setOk] = useState(true);
   const [spoons, setSpoons] = useState(0);
+  const [pick, setPick] = useState(instant.flavours[0].id);
+  const flavour = instant.flavours.find((f) => f.id === pick) ?? instant.flavours[0];
   const reduced = useReducedMotion();
   const priced = instant.price > 0;
 
@@ -249,7 +251,7 @@ export function Instant() {
 
   if (!instant.show) return null;
 
-  const ask = `https://wa.me/${contact.whatsapp}?text=${encodeURIComponent(`Hi! I'd like to know more about ${site.brand.name} ${instant.name} coffee powder.`)}`;
+  const ask = `https://wa.me/${contact.whatsapp}?text=${encodeURIComponent(`Hi! I'd like to know more about ${site.brand.name} ${flavour.name} ${instant.name.toLowerCase()} coffee.`)}`;
 
   return (
     <section ref={wrap} id="instant" aria-labelledby="instant-title" className="relative overflow-hidden bg-ink px-5 pb-28 pt-8 sm:px-8 lg:px-12">
@@ -257,7 +259,7 @@ export function Instant() {
 
       {/* the pouch, in 3D: what you actually get */}
       <div className="relative mx-auto grid max-w-7xl items-center gap-8 lg:grid-cols-[1.15fr_1fr] lg:gap-16">
-        <InstantPouch />
+        <InstantPouch flavour={flavour} />
         <div>
           <p className="mono text-muted">
             {instant.kicker.split("//")[0].trim()} <span className="text-glow">{"// "}{instant.kicker.split("//")[1]?.trim() ?? instant.name}</span>
@@ -268,11 +270,34 @@ export function Instant() {
           </h3>
           <p className="mt-5 max-w-md text-[17px] leading-relaxed text-muted">{instant.text}</p>
 
+          {/* flavour: reprints the label on the pouch */}
+          <div role="radiogroup" aria-label="Flavour" className="mt-8 grid max-w-md grid-cols-3 gap-2 sm:gap-3">
+            {instant.flavours.map((f) => {
+              const on = f.id === pick;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => {
+                    play("tick");
+                    setPick(f.id);
+                  }}
+                  className={`group relative overflow-hidden rounded-sm border px-3 py-4 text-left transition duration-300 ${on ? "border-glow/70 bg-glow/10" : "border-line hover:border-gold/40"}`}
+                >
+                  <span aria-hidden className={`absolute inset-x-0 top-0 h-[3px] transition-opacity duration-300 ${on ? "opacity-100" : "opacity-40 group-hover:opacity-70"}`} style={{ background: f.accent }} />
+                  <span className={`hud block text-[22px] leading-tight transition-colors ${on ? "text-glow" : "text-cream"}`}>{f.name}</span>
+                </button>
+              );
+            })}
+          </div>
+
           <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
             <div>
               <p className="hud text-3xl text-glow">{priced ? `₹${instant.price}` : "Price soon"}</p>
               <p className="mono mt-1 text-muted">
-                {instant.name} coffee powder{instant.size && ` · ${instant.size}`}
+                {flavour.name} · {instant.name.toLowerCase()} coffee{instant.size && ` · ${instant.size}`}
               </p>
             </div>
             {priced ? (
@@ -280,7 +305,7 @@ export function Instant() {
                 type="button"
                 onClick={() => {
                   play("clink");
-                  openOrder({ add: instant.id });
+                  openOrder({ add: `${instant.id}:${flavour.id}` });
                 }}
                 className="hud rounded-sm bg-glow px-7 py-[13px] text-[16px] font-semibold text-ink transition hover:bg-cream"
               >

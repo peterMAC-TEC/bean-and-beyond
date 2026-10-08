@@ -42,7 +42,14 @@ export function OrderDrawer() {
   const [open, setOpen] = useState(false);
   const [counts, setCounts] = useState(empty);
   const [extra, setExtra] = useState(0);
-  const [jars, setJars] = useState(0);
+  // instant coffee, per flavour (keys are flavour ids)
+  const [jarCounts, setJarCounts] = useState<Record<string, number>>({});
+  const jars = sum(jarCounts);
+  const bumpJar = (id: string, d: number) => {
+    play("tick", { gain: 0.7 });
+    setShipped(false);
+    setJarCounts((c) => ({ ...c, [id]: Math.max(0, (c[id] ?? 0) + d) }));
+  };
   // the order has been sent: the crate is nailed shut and ships out of frame (reset by any change)
   const [shipped, setShipped] = useState(false);
   const closeBtn = useRef<HTMLButtonElement>(null);
@@ -70,8 +77,11 @@ export function OrderDrawer() {
   useEffect(() => {
     const onOpen = (e: Event) => {
       const { add, qty = 1 } = (e as CustomEvent<OpenOrder>).detail ?? {};
-      if (add && add === powder?.id) setJars((n) => n + qty);
-      else if (add) {
+      // instant coffee arrives as "instant:<flavour>"
+      if (add && powder && add.startsWith(`${powder.id}:`)) {
+        const fl = add.slice(powder.id.length + 1);
+        setJarCounts((c) => ({ ...c, [fl]: (c[fl] ?? 0) + qty }));
+      } else if (add) {
         setCounts((c) => ({ ...c, [add]: c[add] + qty }));
         setOrder((o) => [...o, ...Array.from({ length: qty }, () => add)]);
       }
@@ -102,7 +112,7 @@ export function OrderDrawer() {
     ...(picked ? [`${picked} bottle${picked === 1 ? "" : "s"} (₹${picked * SINGLE})`] : []),
     ...flavours.filter((f) => counts[f.id]).map((f) => `• ${f.name} × ${counts[f.id]}`),
     ...(extra && milk ? [`+ ${milk.name} × ${extra} (₹${extra * milk.price})`] : []),
-    ...(jars && powder ? [`+ ${powder.name} coffee powder${powder.size ? ` (${powder.size})` : ""} × ${jars} (₹${jars * powder.price})`] : []),
+    ...(powder ? powder.flavours.filter((fl) => jarCounts[fl.id]).map((fl) => `+ ${fl.name} ${powder.name.toLowerCase()} coffee${powder.size ? ` (${powder.size})` : ""} × ${jarCounts[fl.id]} (₹${jarCounts[fl.id] * powder.price})`) : []),
     `Total: ₹${total}${free ? " · free delivery" : ""}`,
   ].join("\n");
   const waUrl = `https://wa.me/${contact.whatsapp}?text=${encodeURIComponent(message)}`;
@@ -178,24 +188,21 @@ export function OrderDrawer() {
                 />
               </li>
             )}
-            {powder && (
-              <li className="flex items-center gap-3 border-t border-line py-2 [@media(max-height:700px)]:py-1.5">
-                <span aria-hidden className="h-7 w-1 shrink-0 rounded-full bg-gold" />
+            {powder?.flavours.map((fl, i) => (
+              <li key={fl.id} className={`flex items-center gap-3 py-2 [@media(max-height:700px)]:py-1.5 ${i === 0 ? "border-t border-line" : ""}`}>
+                <span aria-hidden className="h-7 w-1 shrink-0 rounded-full" style={{ background: fl.accent }} />
                 <div className="min-w-0 flex-1">
-                  <p className="hud text-lg leading-tight text-cream">{powder.name} coffee powder</p>
+                  <p className="hud text-lg leading-tight text-cream">
+                    {fl.name} <span className="text-muted">· {powder.name.toLowerCase()}</span>
+                  </p>
                   <p className="truncate text-[12px] leading-tight text-muted">
                     ₹{powder.price}
                     {powder.size && ` · ${powder.size}`} · {powder.tag}
                   </p>
                 </div>
-                <Stepper
-                  value={jars}
-                  label={`${powder.name} coffee powder`}
-                  onMinus={() => (play("tick", { gain: 0.7 }), setShipped(false), setJars((n) => Math.max(0, n - 1)))}
-                  onPlus={() => (play("tick", { gain: 0.7 }), setShipped(false), setJars((n) => n + 1))}
-                />
+                <Stepper value={jarCounts[fl.id] ?? 0} label={`${fl.name} ${powder.name.toLowerCase()} coffee`} onMinus={() => bumpJar(fl.id, -1)} onPlus={() => bumpJar(fl.id, 1)} />
               </li>
-            )}
+            ))}
           </ul>
         </div>
 

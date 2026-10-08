@@ -6,12 +6,14 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
-import { pouchLabels, labelPath, LABEL_W, LABEL_H, type PouchLabel } from "./pouchLabel";
+import { pouchLabels, labelPath, LABEL_W, LABEL_H, type PouchLabel, type InstantFlavour } from "./pouchLabel";
 
 export type PouchScene = {
   setRunning: (on: boolean) => void;
   /** turn to the back, or back to the front */
   flip: () => void;
+  /** reprint the label for another flavour */
+  setFlavour: (f: InstantFlavour) => Promise<void>;
   ready: () => boolean;
   dispose: () => void;
 };
@@ -217,7 +219,7 @@ function baseGeometry(depth: (u: number, v: number) => number, NU: number) {
   return g;
 }
 
-export async function createPouchScene(el: HTMLCanvasElement, onFlip?: (back: boolean) => void): Promise<PouchScene> {
+export async function createPouchScene(el: HTMLCanvasElement, flavour: InstantFlavour, onFlip?: (back: boolean) => void): Promise<PouchScene> {
   const mobile = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
   const renderer = new THREE.WebGLRenderer({ canvas: el, antialias: true, alpha: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.5 : 1.75));
@@ -275,10 +277,10 @@ export async function createPouchScene(el: HTMLCanvasElement, onFlip?: (back: bo
   contact.position.y = 0.002;
 
   // ---- the pouch ----
-  const labels = await pouchLabels();
+  const labels = await pouchLabels(flavour);
   const TX = mobile ? 760 : 1100;
-  const frontT = panelTextures(labels.front, "front", TX);
-  const backT = panelTextures(labels.back, "back", TX);
+  let frontT = panelTextures(labels.front, "front", TX);
+  let backT = panelTextures(labels.back, "back", TX);
   const depth = shape(frontT.finU);
   const NU = mobile ? 90 : 140;
   const panelG = panelGeometry(depth, NU, mobile ? 135 : 210);
@@ -481,6 +483,24 @@ export async function createPouchScene(el: HTMLCanvasElement, onFlip?: (back: bo
   return {
     setRunning,
     flip,
+    setFlavour: async (fl) => {
+      const next = await pouchLabels(fl);
+      const nf = panelTextures(next.front, "front", TX);
+      const nb = panelTextures(next.back, "back", TX);
+      for (const [m, tx] of [[frontMat, nf], [backMat, nb]] as const) {
+        m.map = tx.map;
+        m.roughnessMap = m.metalnessMap = tx.ormTex;
+        m.normalMap = tx.normal;
+        m.needsUpdate = true;
+      }
+      for (const old of [frontT, backT]) {
+        old.map.dispose();
+        old.ormTex.dispose();
+        old.normal.dispose();
+      }
+      frontT = nf;
+      backT = nb;
+    },
     ready: () => isReady,
     dispose: () => {
       setRunning(false);

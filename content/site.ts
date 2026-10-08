@@ -85,6 +85,13 @@ export const site = {
     text: "Our dark roast, dried to granules. One spoon, hot water, stir, and it's Bean & Beyond wherever you are.",
     howTo: ["One heaped spoon", "150 ml hot water", "Stir 10 seconds", "Condensed milk to taste"], // TODO: confirm
     tag: "New",
+    // Each flavour gets its own pouch label: the name prints large on the front.
+    // band colours the ribbon behind the oval; accent is the swatch on the website.
+    flavours: [
+      { id: "pure", name: "Pure Coffee", band: "#5a2420", accent: "#b8741f" },
+      { id: "hazelnut", name: "Hazelnut", band: "#4e3018", accent: "#b0653a" },
+      { id: "caramel", name: "Caramel", band: "#7a4614", accent: "#d9a050" },
+    ],
   },
 
   // ---------- Packs ----------

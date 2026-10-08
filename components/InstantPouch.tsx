@@ -5,14 +5,18 @@ import { site } from "@/content/site";
 import { play } from "@/lib/sound";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 import type { PouchScene } from "@/lib/pouchScene";
+import type { InstantFlavour } from "@/lib/pouchLabel";
 
 /**
  * The instant coffee pouch in 3D (lib/pouchScene.ts): drag to turn it, tap to read the back.
  * It builds once the section is about a screen away. Until then, and wherever 3D can't run
  * (or motion is reduced), a still render of the same pouch stands in.
  */
-export function InstantPouch() {
+export function InstantPouch({ flavour }: { flavour: InstantFlavour }) {
   const box = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<PouchScene | null>(null);
+  // the flavour the label should show; read when the scene is first built
+  const flavourRef = useRef(flavour);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [live, setLive] = useState(false);
   const [back, setBack] = useState(false);
@@ -40,15 +44,19 @@ export function InstantPouch() {
     window.addEventListener("bb:unlock", unlock);
 
     const start = async () => {
+      const flavour0 = flavourRef.current;
       try {
         const { createPouchScene } = await import("@/lib/pouchScene");
         if (cancelled) return;
-        const s = await createPouchScene(canvas.current!, (b) => {
+        const s = await createPouchScene(canvas.current!, flavourRef.current, (b) => {
           setBack(b);
           play("whoosh", { gain: 0.25 });
         });
         if (cancelled) return s.dispose();
         scene = s;
+        sceneRef.current = s;
+        // the flavour may have changed while it was building
+        if (flavourRef.current !== flavour0) await s.setFlavour(flavourRef.current);
         setLive(true);
         io.observe(el);
       } catch (err) {
@@ -72,8 +80,16 @@ export function InstantPouch() {
       window.removeEventListener("bb:lock", lock);
       window.removeEventListener("bb:unlock", unlock);
       scene?.dispose();
+      sceneRef.current = null;
     };
   }, [reduced]);
+
+  // a new flavour: reprint the label on the pouch
+  useEffect(() => {
+    if (flavourRef.current === flavour) return;
+    flavourRef.current = flavour;
+    void sceneRef.current?.setFlavour(flavour);
+  }, [flavour]);
 
   return (
     <div ref={box} className="relative mx-auto aspect-square w-full max-w-[720px] select-none">
@@ -81,8 +97,8 @@ export function InstantPouch() {
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(ellipse 55% 45% at 50% 58%, rgba(138,92,44,.28), transparent 72%)" }} />
       {/* eslint-disable-next-line @next/next/no-img-element -- a plain still; next/image adds nothing for one decorative frame */}
       <img
-        src="/instant/pouch.jpg"
-        alt={`${site.brand.name} ${site.instant.name} coffee: a matte black stand-up pouch with the gold-foil label`}
+        src={`/instant/pouch-${flavour.id}.jpg`}
+        alt={`${site.brand.name} ${flavour.name} ${site.instant.name.toLowerCase()} coffee: a matte black stand-up pouch with the gold-foil label`}
         className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 [mask-image:radial-gradient(ellipse_50%_50%_at_50%_50%,#000_62%,transparent_100%)] ${live ? "opacity-0" : "opacity-100"}`}
       />
       <canvas
